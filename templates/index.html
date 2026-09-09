@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Склад: Учет остатков</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h1 { margin: 0; color: #1a3c5e; }
+        .header-actions { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        .user-badge { background: #1a3c5e; color: white; padding: 6px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; }
+        .btn-logout { background: #d32f2f; color: white; padding: 6px 16px; border-radius: 6px; text-decoration: none; font-size: 14px; }
+        .btn-logout:hover { background: #b71c1c; }
+        .btn-history { background: #1a3c5e; color: white; padding: 6px 16px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; }
+        .btn-history:hover { background: #0f2a40; }
+        .btn-excel { background: #2e7d32; color: white; padding: 6px 16px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; }
+        .btn-excel:hover { background: #1b5e20; }
+
+        .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 2px solid #ddd; flex-wrap: wrap; }
+        .tab-btn { padding: 12px 30px; border: none; background: #e9ecef; cursor: pointer; font-size: 16px; font-weight: bold; border-radius: 8px 8px 0 0; transition: 0.2s; }
+        .tab-btn.active { background: #1a3c5e; color: white; }
+        .tab-btn:hover:not(.active) { background: #dee2e6; }
+        .tab-btn.hidden { display: none; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        #searchInput { width: 100%; padding: 14px; font-size: 18px; border: 2px solid #ddd; border-radius: 8px; margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #1a3c5e; color: white; padding: 12px; text-align: left; position: sticky; top: 0; }
+        td { padding: 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+        .balance { font-weight: 700; font-size: 18px; }
+        .low { background-color: #ffebee; } 
+        .low .balance { color: #d32f2f; }
+        input[type="number"] { width: 80px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; text-align: center; }
+        
+        .btn-ship { background: #d32f2f; color: white; border: none; padding: 8px 20px; border-radius: 4px; font-size: 16px; cursor: pointer; transition: 0.2s; }
+        .btn-ship:hover { background: #b71c1c; }
+        .btn-ship:disabled { background: #aaa; cursor: not-allowed; }
+        
+        .btn-receive { background: #2e7d32; color: white; border: none; padding: 8px 20px; border-radius: 4px; font-size: 16px; cursor: pointer; transition: 0.2s; }
+        .btn-receive:hover { background: #1b5e20; }
+        .btn-receive:disabled { background: #aaa; cursor: not-allowed; }
+
+        #message { margin: 15px 0; padding: 12px; border-radius: 6px; display: none; }
+        .success { background: #c8e6c9; color: #1e5a1e; display: block !important; }
+        .error { background: #ffcdd2; color: #a11f1f; display: block !important; }
+        .info { background: #d1ecf1; color: #0c5460; display: block !important; }
+        .footer { margin-top: 25px; color: #777; font-size: 14px; border-top: 1px solid #ddd; padding-top: 15px; display: flex; justify-content: space-between; flex-wrap: wrap; }
+        
+        @media (max-width: 768px) {
+            .header { flex-direction: column; align-items: stretch; gap: 10px; }
+            .header-actions { flex-wrap: wrap; }
+            .tab-btn { padding: 10px 15px; font-size: 14px; flex: 1; text-align: center; }
+            td, th { padding: 8px; font-size: 14px; }
+            input[type="number"] { width: 60px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📦 Учет склада</h1>
+        <div class="header-actions">
+            <span class="user-badge">👤 {{ username }}</span>
+            
+            <!-- Кнопки видимы ТОЛЬКО админу (Павлу) -->
+            {% if session.get('role') == 'admin' %}
+                <a href="/history" class="btn-history" target="_blank">📜 Журнал</a>
+                <a href="/export_excel" class="btn-excel" target="_blank">📊 Выгрузить Excel</a>
+            {% endif %}
+            
+            <a href="/logout" class="btn-logout">🚪 Выйти</a>
+        </div>
+    </div>
+    
+    <div id="message"></div>
+
+    <!-- Вкладки -->
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="tabShip">📤 Отгрузка</button>
+        <button class="tab-btn" data-tab="tabReceive" id="receiveTabBtn">📥 Пополнение</button>
+    </div>
+
+    <input type="text" id="searchInput" placeholder="🔎 Поиск по названию или артикулу ...">
+
+    <!-- Вкладка: ОТГРУЗКА -->
+    <div id="tabShip" class="tab-content active">
+        <table>
+            <thead><tr><th>ID</th><th>Наименование</th><th>Остаток</th><th>Кол-во</th><th></th></tr></thead>
+            <tbody id="shipTable"></tbody>
+        </table>
+        <div style="margin-top:10px; color:#777; font-size:13px;">🔴 Красная строка = остаток меньше 5. Требуется пополнение!</div>
+    </div>
+
+    <!-- Вкладка: ПОПОЛНЕНИЕ -->
+    <div id="tabReceive" class="tab-content">
+        <table>
+            <thead><tr><th>ID</th><th>Наименование</th><th>Текущий остаток</th><th>Сколько добавить?</th><th></th></tr></thead>
+            <tbody id="receiveTable"></tbody>
+        </table>
+        <div style="margin-top:10px; color:#777; font-size:13px;">🟢 Пополнение увеличивает остаток. Доступно только завхозам и админам.</div>
+    </div>
+
+    <div class="footer">
+        <span id="updateTime"></span>
+        <span>⚡ Данные обновляются автоматически</span>
+    </div>
+</div>
+
+<script>
+    // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+    const msgDiv = document.getElementById('message');
+    const searchInput = document.getElementById('searchInput');
+    const shipTableBody = document.getElementById('shipTable');
+    const receiveTableBody = document.getElementById('receiveTable');
+    let currentUserRole = '';
+
+    // --- ПОЛУЧАЕМ ИНФОРМАЦИЮ О ТЕКУЩЕМ ПОЛЬЗОВАТЕЛЕ ---
+    async function getCurrentUser() {
+        try {
+            const resp = await fetch('/api/current_user');
+            const data = await resp.json();
+            currentUserRole = data.role;
+            
+            if (currentUserRole === 'worker') {
+                document.getElementById('receiveTabBtn').classList.add('hidden');
+                if (document.getElementById('tabReceive').classList.contains('active')) {
+                    switchTab('tabShip');
+                }
+            }
+        } catch (e) {
+            console.error('Ошибка получения пользователя:', e);
+        }
+    }
+
+    // --- ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ---
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelector(`[data-tab="${tabId}"]`)?.classList.add('active');
+        document.getElementById(tabId).classList.add('active');
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            if (this.classList.contains('hidden')) return;
+            switchTab(this.dataset.tab);
+        });
+    });
+
+    // --- ЗАГРУЗКА ОСТАТКОВ ---
+    async function loadData() {
+        try {
+            const resp = await fetch('/api/balances');
+            const items = await resp.json();
+            
+            shipTableBody.innerHTML = '';
+            receiveTableBody.innerHTML = '';
+            
+            items.forEach(item => {
+                const shipRow = document.createElement('tr');
+                if (item.balance < 5) shipRow.className = 'low';
+                shipRow.innerHTML = `
+                    <td>${item.id}</td>
+                    <td><strong>${item.name}</strong></td>
+                    <td class="balance">${item.balance} ${item.unit || ''}</td>
+                    <td><input type="number" id="ship_qty_${item.id}" value="1" min="1"></td>
+                    <td><button class="btn-ship" onclick="shipProduct(${item.id}, this)">Отгрузить</button></td>
+                `;
+                shipTableBody.appendChild(shipRow);
+
+                const receiveRow = document.createElement('tr');
+                receiveRow.innerHTML = `
+                    <td>${item.id}</td>
+                    <td><strong>${item.name}</strong></td>
+                    <td class="balance">${item.balance} ${item.unit || ''}</td>
+                    <td><input type="number" id="rec_qty_${item.id}" value="10" min="1"></td>
+                    <td><button class="btn-receive" onclick="receiveProduct(${item.id}, this)">➕ Пополнить</button></td>
+                `;
+                receiveTableBody.appendChild(receiveRow);
+            });
+            
+            document.getElementById('updateTime').textContent = `🔄 Обновлено: ${new Date().toLocaleString()}`;
+        } catch (e) {
+            showMessage('❌ Ошибка загрузки данных', 'error');
+        }
+    }
+
+    // --- ОТГРУЗКА ---
+    async function shipProduct(id, btn) {
+        const input = document.getElementById(`ship_qty_${id}`);
+        const qty = parseInt(input.value);
+
+        if (!qty || qty < 1) { showMessage('Введите число больше 0', 'error'); return; }
+
+        btn.disabled = true;
+        btn.textContent = '⏳...';
+
+        try {
+            const resp = await fetch('/api/ship', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: id, quantity: qty })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                showMessage(`✅ Отгружено ${qty} единиц!`, 'success');
+                loadData();
+            } else {
+                showMessage('❌ ' + result.error, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Отгрузить';
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка сервера', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Отгрузить';
+        }
+    }
+
+    // --- ПОПОЛНЕНИЕ ---
+    async function receiveProduct(id, btn) {
+        const input = document.getElementById(`rec_qty_${id}`);
+        const qty = parseInt(input.value);
+
+        if (!qty || qty < 1) { showMessage('Введите число больше 0', 'error'); return; }
+
+        btn.disabled = true;
+        btn.textContent = '⏳...';
+
+        try {
+            const resp = await fetch('/api/receive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: id, quantity: qty })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                showMessage(`✅ Пополнено на ${qty} единиц!`, 'success');
+                loadData();
+            } else {
+                showMessage('❌ ' + (result.error || 'Доступ запрещен'), 'error');
+                btn.disabled = false;
+                btn.textContent = 'Пополнить';
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка сервера', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Пополнить';
+        }
+    }
+
+    // --- СООБЩЕНИЯ ---
+    function showMessage(text, type) {
+        msgDiv.textContent = text;
+        msgDiv.className = type;
+        clearTimeout(msgDiv._timer);
+        msgDiv._timer = setTimeout(() => { msgDiv.className = ''; msgDiv.textContent = ''; }, 4000);
+    }
+
+    // --- ПОИСК ---
+    searchInput.addEventListener('input', function() {
+        const filter = this.value.toLowerCase();
+        document.querySelectorAll('#shipTable tr, #receiveTable tr').forEach(row => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(filter) ? '' : 'none';
+        });
+    });
+
+    // --- ЗАПУСК ---
+    window.onload = async function() {
+        await getCurrentUser();
+        await loadData();
+        setInterval(loadData, 30000);
+    };
+</script>
+</body>
+</html>

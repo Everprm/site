@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Доступ запрещен</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 50px 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 500px;
+        }
+        .container .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        .container h1 {
+            color: #d32f2f;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .container p {
+            color: #666;
+            font-size: 16px;
+            margin-bottom: 25px;
+        }
+        .btn-back {
+            background: #1a3c5e;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            transition: 0.3s;
+        }
+        .btn-back:hover {
+            background: #0f2a40;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="icon">🚫</div>
+    <h1>Доступ запрещен</h1>
+    <p>У вас недостаточно прав для просмотра этой страницы.<br>Журнал действий доступен только администратору.</p>
+    <a href="/" class="btn-back">⬅ Вернуться на главную</a>
+</div>
+</body>
+</html>
