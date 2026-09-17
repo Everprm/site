@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>📌 Резервы товаров</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #f0f2f5; 
+            padding: 20px; 
+            margin: 0; 
+        }
+        .container { 
+            max-width: 1300px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+        }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border-bottom: 2px solid #eee; 
+            padding-bottom: 15px; 
+            margin-bottom: 20px; 
+            flex-wrap: wrap; 
+            gap: 10px; 
+        }
+        .header h1 { margin: 0; color: #1a3c5e; }
+        .btn-back { 
+            background: #777; 
+            color: white; 
+            padding: 8px 20px; 
+            border-radius: 6px; 
+            text-decoration: none; 
+            font-weight: bold; 
+            transition: 0.2s;
+        }
+        .btn-back:hover { background: #555; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { 
+            background: #f57c00; 
+            color: white; 
+            padding: 12px; 
+            text-align: left; 
+            font-size: 13px; 
+        }
+        td { 
+            padding: 10px; 
+            border-bottom: 1px solid #ddd; 
+            font-size: 14px; 
+            vertical-align: middle; 
+        }
+        .qty { color: #f57c00; font-weight: bold; font-size: 16px; }
+        .badge { 
+            background: #1a3c5e; 
+            color: white; 
+            padding: 3px 10px; 
+            border-radius: 12px; 
+            font-size: 12px; 
+        }
+        .comment { 
+            background: #fff3e0; 
+            color: #e65100; 
+            padding: 3px 8px; 
+            border-radius: 4px; 
+            font-size: 13px; 
+            font-weight: 600; 
+        }
+        .date { color: #777; font-size: 13px; }
+        
+        .btn-unreserve { 
+            background: #607d8b; 
+            color: white; 
+            border: none; 
+            padding: 6px 14px; 
+            border-radius: 4px; 
+            font-size: 13px; 
+            cursor: pointer; 
+            transition: 0.2s;
+        }
+        .btn-unreserve:hover { background: #455a64; }
+        
+        .empty { 
+            text-align: center; 
+            padding: 40px; 
+            color: #999; 
+            font-size: 16px; 
+        }
+        
+        .summary { 
+            display: flex; 
+            gap: 20px; 
+            margin: 20px 0; 
+            flex-wrap: wrap; 
+        }
+        .summary-card { 
+            background: #f5f7fa; 
+            padding: 15px 25px; 
+            border-radius: 8px; 
+            border-left: 4px solid #f57c00; 
+        }
+        .summary-card .number { 
+            font-size: 28px; 
+            font-weight: bold; 
+            color: #f57c00; 
+        }
+        
+        .group-header { background: #f5f7fa; }
+        .group-header td { 
+            font-weight: bold; 
+            color: #1a3c5e; 
+            font-size: 15px; 
+            padding: 12px 10px; 
+            border-bottom: 2px solid #f57c00; 
+        }
+        .product-row td:first-child { border-left: 3px solid #f57c00; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📌 Резервы товаров</h1>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <span style="background:#1a3c5e; color:white; padding:6px 16px; border-radius:20px; font-size:14px;">👤 {{ username }}</span>
+            <a href="/" class="btn-back">⬅ Назад к складу</a>
+        </div>
+    </div>
+
+    <div class="summary">
+        <div class="summary-card">
+            <div class="number" id="totalReserves">0</div>
+            <div>Активных резервов</div>
+        </div>
+        <div class="summary-card">
+            <div class="number" id="totalItems">0</div>
+            <div>Всего зарезервировано (шт)</div>
+        </div>
+        <div class="summary-card">
+            <div class="number" id="totalProducts">0</div>
+            <div>Позиций с резервом</div>
+        </div>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Товар</th>
+                <th>Зарезервировано</th>
+                <th>Пометка</th>
+                <th>Кто</th>
+                <th>Дата (Пермь)</th>
+                <th>Действие</th>
+            </tr>
+        </thead>
+        <tbody id="reservesTable">
+            <tr><td colspan="6" class="empty">Загрузка...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    let currentUsername = '';
+    let canReserve = false;
+
+    async function getCurrentUser() {
+        try {
+            const resp = await fetch('/api/current_user');
+            const data = await resp.json();
+            currentUsername = data.username;
+            canReserve = data.can_reserve;
+        } catch (e) {
+            console.error('Ошибка получения пользователя:', e);
+        }
+    }
+
+    async function loadReserves() {
+        try {
+            const resp = await fetch('/api/reserves');
+            const reserves = await resp.json();
+            
+            const table = document.getElementById('reservesTable');
+            const totalReserves = document.getElementById('totalReserves');
+            const totalItems = document.getElementById('totalItems');
+            const totalProducts = document.getElementById('totalProducts');
+            
+            if (reserves.length === 0) {
+                table.innerHTML = '<tr><td colspan="6" class="empty">📭 Нет активных резервов</td></tr>';
+                totalReserves.textContent = '0';
+                totalItems.textContent = '0';
+                totalProducts.textContent = '0';
+                return;
+            }
+            
+            let totalQty = 0;
+            const productSet = new Set();
+            table.innerHTML = '';
+            
+            let lastProductId = null;
+            
+            reserves.forEach(r => {
+                totalQty += r.quantity;
+                productSet.add(r.product_id);
+                
+                if (r.product_id !== lastProductId) {
+                    const groupRow = document.createElement('tr');
+                    groupRow.className = 'group-header';
+                    groupRow.innerHTML = `<td colspan="6">📦 ${r.product_name}</td>`;
+                    table.appendChild(groupRow);
+                    lastProductId = r.product_id;
+                }
+                
+                const row = document.createElement('tr');
+                row.className = 'product-row';
+                
+                const actionBtn = canReserve
+                    ? `<button class="btn-unreserve" onclick="unreserveOne(${r.id})">🔓 Снять</button>`
+                    : `<span style="color:#aaa; font-size:13px;">—</span>`;
+                
+                row.innerHTML = `
+                    <td></td>
+                    <td class="qty">${r.quantity} ${r.unit || 'шт'}</td>
+                    <td><span class="comment">${r.comment || 'Без пометки'}</span></td>
+                    <td><span class="badge">${r.user}</span></td>
+                    <td class="date">${r.created_at}</td>
+                    <td>${actionBtn}</td>
+                `;
+                table.appendChild(row);
+            });
+            
+            totalReserves.textContent = reserves.length;
+            totalItems.textContent = totalQty;
+            totalProducts.textContent = productSet.size;
+        } catch (e) {
+            document.getElementById('reservesTable').innerHTML = 
+                '<tr><td colspan="6" class="empty">❌ Ошибка загрузки</td></tr>';
+            console.error(e);
+        }
+    }
+    
+    async function unreserveOne(reserveId) {
+        if (!confirm(`Снять резерв #${reserveId}?`)) return;
+        
+        try {
+            const resp = await fetch('/api/unreserve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reserve_id: reserveId })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                loadReserves();
+            } else {
+                alert('Ошибка: ' + result.error);
+            }
+        } catch (e) {
+            alert('Ошибка сервера');
+        }
+    }
+    
+    window.onload = async function() {
+        await getCurrentUser();
+        await loadReserves();
+    };
+</script>
+</body>
+</html>

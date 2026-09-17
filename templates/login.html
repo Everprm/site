@@ -34,9 +34,7 @@
             font-size: 14px;
             margin-bottom: 25px;
         }
-        .form-group {
-            margin-bottom: 18px;
-        }
+        .form-group { margin-bottom: 18px; }
         .form-group label {
             display: block;
             font-weight: 600;
@@ -70,13 +68,8 @@
             transition: 0.3s;
             margin-top: 5px;
         }
-        .btn-login:hover {
-            background: #0f2a40;
-        }
-        .btn-login:disabled {
-            background: #aaa;
-            cursor: not-allowed;
-        }
+        .btn-login:hover { background: #0f2a40; }
+        .btn-login:disabled { background: #aaa; cursor: not-allowed; }
         .error-msg {
             background: #ffebee;
             color: #c62828;
@@ -87,9 +80,7 @@
             font-size: 14px;
             text-align: center;
         }
-        .error-msg.show {
-            display: block;
-        }
+        .error-msg.show { display: block; }
         
         /* Список пользователей */
         .users-list {
@@ -116,11 +107,20 @@
             font-size: 14px;
             color: #333;
             border: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: 0.2s;
+            user-select: none;
         }
-        .user-item .name {
-            font-weight: 600;
-            color: #1a3c5e;
+        .user-item:hover {
+            background: #e3ecf5;
+            border-color: #1a3c5e;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(26,60,94,0.15);
         }
+        .user-item:active {
+            transform: translateY(0);
+        }
+        .user-item .name { font-weight: 600; color: #1a3c5e; }
         .user-item .role-badge {
             display: inline-block;
             font-size: 10px;
@@ -130,12 +130,8 @@
             border-radius: 10px;
             margin-left: 4px;
         }
-        .user-item .role-badge.worker {
-            background: #6c757d;
-        }
-        .user-item .role-badge.admin {
-            background: #d32f2f;
-        }
+        .user-item .role-badge.worker { background: #6c757d; }
+        .user-item .role-badge.admin { background: #d32f2f; }
         
         .footer-login {
             text-align: center;
@@ -167,10 +163,18 @@
     <div class="users-list">
         <div class="label">— Доступные пользователи —</div>
         <div class="user-grid">
-            <div class="user-item"><span class="name">Павел</span> <span class="role-badge admin">админ</span></div>
-            <div class="user-item"><span class="name">Валерий</span> <span class="role-badge worker">клад.</span></div>
-            <div class="user-item"><span class="name">Евгений</span> <span class="role-badge worker">клад.</span></div>
-            <div class="user-item"><span class="name">Виталий</span> <span class="role-badge worker">клад.</span></div>
+            <div class="user-item" onclick="fillLogin('Павел')" title="Нажмите, чтобы подставить логин">
+                <span class="name">Павел</span> <span class="role-badge admin">админ</span>
+            </div>
+            <div class="user-item" onclick="fillLogin('Валерий')" title="Нажмите, чтобы подставить логин">
+                <span class="name">Валерий</span> <span class="role-badge worker">клад.</span>
+            </div>
+            <div class="user-item" onclick="fillLogin('Евгений')" title="Нажмите, чтобы подставить логин">
+                <span class="name">Евгений</span> <span class="role-badge worker">клад.</span>
+            </div>
+            <div class="user-item" onclick="fillLogin('Виталий')" title="Нажмите, чтобы подставить логин">
+                <span class="name">Виталий</span> <span class="role-badge worker">клад.</span>
+            </div>
         </div>
     </div>
     
@@ -178,6 +182,14 @@
 </div>
 
 <script>
+    // Автозаполнение поля "Логин" при клике на имя
+    function fillLogin(name) {
+        const input = document.getElementById('username');
+        input.value = name;
+        // Сразу переводим фокус на пароль — удобно для быстрого ввода
+        document.getElementById('password').focus();
+    }
+
     async function login(event) {
         event.preventDefault();
         

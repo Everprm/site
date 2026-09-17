@@ -1,14 +1,52 @@
 import sqlite3
 import os
+import time
 import bcrypt
 
-if os.path.exists('warehouse.db'):
-    os.remove('warehouse.db')
+# ===== НАСТРОЙКА =====
+DB_NAME = 'warehouse.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, DB_NAME)
 
-conn = sqlite3.connect('warehouse.db')
+print(f"📂 Папка проекта: {BASE_DIR}")
+print(f"📦 База данных:   {DB_PATH}")
+print()
+
+# ===== УДАЛЕНИЕ СТАРОЙ БАЗЫ =====
+if os.path.exists(DB_PATH):
+    deleted = False
+    for attempt in range(3):
+        try:
+            os.remove(DB_PATH)
+            print(f"🗑️  Старая база удалена")
+            deleted = True
+            break
+        except PermissionError:
+            print(f"⚠️  Попытка {attempt + 1}: файл занят, ждём 2 секунды...")
+            time.sleep(2)
+    
+    if not deleted:
+        backup_name = os.path.join(BASE_DIR, f"backup_{int(time.time())}.db")
+        try:
+            os.rename(DB_PATH, backup_name)
+            print(f"📦 Файл занят, переименован в: {backup_name}")
+        except Exception as e:
+            print(f"❌ Не удалось: {e}")
+            input("Нажмите Enter для выхода...")
+            exit(1)
+
+# ===== СОЗДАНИЕ НОВОЙ БАЗЫ =====
+print("📦 Создаём новую базу...")
+conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
-# 1. Таблица товаров
+# На всякий случай — принудительно удаляем таблицы, если остались
+cursor.execute('DROP TABLE IF EXISTS products')
+cursor.execute('DROP TABLE IF EXISTS users')
+cursor.execute('DROP TABLE IF EXISTS stock_moves')
+cursor.execute('DROP TABLE IF EXISTS reserves')
+
+# ===== СОЗДАНИЕ ТАБЛИЦ =====
 cursor.execute('''
 CREATE TABLE products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,7 +55,6 @@ CREATE TABLE products (
 )
 ''')
 
-# 2. Таблица пользователей
 cursor.execute('''
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +64,6 @@ CREATE TABLE users (
 )
 ''')
 
-# 3. Таблица движений (Журнал)
 cursor.execute('''
 CREATE TABLE stock_moves (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +75,19 @@ CREATE TABLE stock_moves (
 )
 ''')
 
-# --- ПОЛЬЗОВАТЕЛИ ---
+cursor.execute('''
+CREATE TABLE reserves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    user TEXT NOT NULL,
+    comment TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active INTEGER DEFAULT 1
+)
+''')
+
+# ===== ПОЛЬЗОВАТЕЛИ =====
 users_data = [
     ('Павел', 'Q111', 'admin'),
     ('Валерий', 'Q2', 'worker'),
@@ -48,16 +96,15 @@ users_data = [
 ]
 
 for name, password, role in users_data:
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     cursor.execute(
         "INSERT INTO users (name, password_hash, role) VALUES (?, ?, ?)",
         (name, hashed.decode('utf-8'), role)
     )
 
-# --- ПОЛНЫЙ СПИСОК ТОВАРОВ ИЗ ФАЙЛА (216 позиций) ---
+# ===== ТОВАРЫ (216 позиций) =====
 products_data = [
-    ('S04А пластина AISI 316 0.5мм TL 1234', 1000),
+    ('S04А пластина AISI 316 0.5мм TL 1234', 100),
     ('S04А пластина AISI 316 0.5мм TL 0000', 101),
     ('S04А прокладка EPDM', 102),
     ('S04A прокладка EPDM HT', 103),
@@ -367,33 +414,28 @@ products_data = [
     ('ТИЖ-008 Прокладка EPDM', 216)
 ]
 
-# --- ЗАПИСЫВАЕМ ТОВАРЫ В БАЗУ ---
-for name, quantity in products_data:
-    cursor.execute(
-        "INSERT INTO products (name, unit) VALUES (?, ?)",
-        (name, 'шт')
-    )
+for name, qty in products_data:
+    cursor.execute("INSERT INTO products (name, unit) VALUES (?, ?)", (name, 'шт'))
 
-# --- ДОБАВЛЯЕМ НАЧАЛЬНЫЕ ОСТАТКИ ---
-for i, (name, quantity) in enumerate(products_data, start=1):
+for i, (name, qty) in enumerate(products_data, start=1):
     cursor.execute(
         "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
-        (i, quantity, 'Павел', 'Начальный остаток')
+        (i, qty, 'Павел', 'Начальный остаток')
     )
 
 conn.commit()
 conn.close()
 
+print()
 print("=" * 60)
 print("✅ БАЗА ДАННЫХ УСПЕШНО СОЗДАНА!")
 print("=" * 60)
 print(f"📦 Добавлено товаров: {len(products_data)}")
-print("")
+print("📌 Таблица резервов создана")
+print()
 print("👤 ПОЛЬЗОВАТЕЛИ:")
 print("   - Павел (администратор) — пароль: Q111")
 print("   - Валерий (кладовщик)   — пароль: Q2")
 print("   - Евгений (кладовщик)   — пароль: Q3")
 print("   - Виталий (кладовщик)   — пароль: Q4")
-print("")
-print("🔑 Пароли чувствительны к регистру!")
 print("=" * 60)

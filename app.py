@@ -9,28 +9,34 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from functools import wraps
 
 app = Flask(__name__)
-# Секретный ключ для сессий
 app.secret_key = 'supersecretkey123!@#$%'
 app.permanent_session_lifetime = timedelta(hours=8)
 
 
 # ============================================================
-# ФУНКЦИИ РАБОТЫ С БАЗОЙ ДАННЫХ
+# ПЕРМСКОЕ ВРЕМЯ (UTC+5)
+# ============================================================
+
+def get_perm_time():
+    """Возвращает текущее пермское время (UTC+5)"""
+    return datetime.utcnow() + timedelta(hours=5)
+
+
+# ============================================================
+# БАЗА ДАННЫХ
 # ============================================================
 
 def get_db():
-    """Подключение к базе данных"""
     conn = sqlite3.connect('warehouse.db')
     conn.row_factory = sqlite3.Row
     return conn
 
 
 # ============================================================
-# ДЕКОРАТОРЫ ДЛЯ ПРОВЕРКИ ПРАВ ДОСТУПА
+# ДЕКОРАТОРЫ
 # ============================================================
 
 def login_required(f):
-    """Декоратор: только для авторизованных пользователей"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
@@ -40,7 +46,6 @@ def login_required(f):
 
 
 def role_required(allowed_roles):
-    """Декоратор: только для пользователей с определенной ролью"""
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -52,12 +57,30 @@ def role_required(allowed_roles):
 
 
 # ============================================================
+# ПРАВА ДОСТУПА ПО ИМЕНАМ
+# ============================================================
+
+# Кто МОЖЕТ отгружать
+CAN_SHIP_USERS = ['Павел', 'Валерий']
+
+# Кто МОЖЕТ резервировать и снимать резерв
+CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий']
+
+
+def can_ship(username):
+    return username in CAN_SHIP_USERS
+
+
+def can_reserve(username):
+    return username in CAN_RESERVE_USERS
+
+
+# ============================================================
 # СТРАНИЦЫ
 # ============================================================
 
 @app.route('/login')
 def login_page():
-    """Страница входа"""
     if 'user_id' in session:
         return redirect(url_for('index'))
     return render_template('login.html')
@@ -66,14 +89,13 @@ def login_page():
 @app.route('/')
 @login_required
 def index():
-    """Главная страница"""
     return render_template('index.html', username=session.get('username'), role=session.get('role'))
 
 
 @app.route('/history')
 @login_required
 def history():
-    """Страница журнала действий (только для админа)"""
+    """Журнал (только для админа). Время — пермское."""
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     
@@ -85,7 +107,7 @@ def history():
             sm.quantity,
             sm.user,
             sm.comment,
-            sm.created_at
+            datetime(sm.created_at, '+5 hours') as created_at
         FROM stock_moves sm
         JOIN products p ON sm.product_id = p.id
         ORDER BY sm.created_at DESC
@@ -95,9 +117,14 @@ def history():
     return render_template('history.html', logs=logs, username=session.get('username'))
 
 
+@app.route('/reserves')
+@login_required
+def reserves_page():
+    return render_template('reserves.html', username=session.get('username'))
+
+
 @app.route('/logout')
 def logout():
-    """Выход из системы"""
     session.clear()
     return redirect(url_for('login_page'))
 
@@ -108,7 +135,6 @@ def logout():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    """API: Вход пользователя"""
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -126,7 +152,6 @@ def api_login():
     if not user:
         return jsonify({'error': 'Пользователь не найден'}), 401
     
-    # Проверяем пароль
     try:
         if bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
             session.permanent = True
@@ -143,17 +168,18 @@ def api_login():
 @app.route('/api/current_user')
 @login_required
 def current_user():
-    """API: Получить информацию о текущем пользователе"""
+    username = session.get('username')
     return jsonify({
-        'username': session.get('username'),
-        'role': session.get('role')
+        'username': username,
+        'role': session.get('role'),
+        'can_ship': can_ship(username),
+        'can_reserve': can_reserve(username)
     })
 
 
 @app.route('/api/users')
 @login_required
 def get_users():
-    """API: Список всех пользователей"""
     conn = get_db()
     users = conn.execute("SELECT name FROM users ORDER BY name").fetchall()
     conn.close()
@@ -161,37 +187,53 @@ def get_users():
 
 
 # ============================================================
-# API - ОСТАТКИ И ДВИЖЕНИЯ
+# API - ОСТАТКИ
 # ============================================================
 
 @app.route('/api/balances')
 @login_required
 def balances():
-    """API: Получить текущие остатки всех товаров"""
     conn = get_db()
     data = conn.execute('''
         SELECT 
             p.id, 
             p.name, 
             p.unit, 
-            COALESCE(SUM(sm.quantity), 0) as balance
+            COALESCE(SUM(sm.quantity), 0) as balance,
+            COALESCE((
+                SELECT SUM(r.quantity) 
+                FROM reserves r 
+                WHERE r.product_id = p.id AND r.is_active = 1
+            ), 0) as reserved
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
         GROUP BY p.id
         ORDER BY p.id
     ''').fetchall()
     conn.close()
-    return jsonify([dict(row) for row in data])
+    
+    result = []
+    for row in data:
+        item = dict(row)
+        item['available'] = item['balance'] - item['reserved']
+        result.append(item)
+    
+    return jsonify(result)
 
 
 @app.route('/api/ship', methods=['POST'])
 @login_required
 def ship():
-    """API: Отгрузка товара (уменьшает остаток)"""
+    """Отгрузка. Только для Павла и Валерия."""
+    username = session.get('username')
+    
+    if not can_ship(username):
+        return jsonify({'error': f'❌ У пользователя {username} нет прав на отгрузку'}), 403
+
     data = request.get_json()
     prod_id = data.get('product_id')
     qty = data.get('quantity')
-    user = session.get('username', 'Неизвестный')
+    user = username
     comment = data.get('comment', 'Отгрузка')
 
     if not prod_id or not qty or qty <= 0:
@@ -199,19 +241,27 @@ def ship():
 
     conn = get_db()
     
-    # Проверяем остаток
     check = conn.execute('''
-        SELECT COALESCE(SUM(quantity), 0) as total 
-        FROM stock_moves 
-        WHERE product_id = ?
-    ''', (prod_id,)).fetchone()
+        SELECT 
+            COALESCE((SELECT SUM(quantity) FROM stock_moves WHERE product_id = ?), 0) as balance,
+            COALESCE((SELECT SUM(quantity) FROM reserves WHERE product_id = ? AND is_active = 1), 0) as reserved
+    ''', (prod_id, prod_id)).fetchone()
     
-    current_balance = check['total']
-    if current_balance < qty:
+    balance = check['balance']
+    reserved = check['reserved']
+    available = balance - reserved
+    
+    if qty > available:
         conn.close()
-        return jsonify({'error': f'Недостаточно товара! Остаток: {current_balance}'}), 400
+        if reserved > 0:
+            return jsonify({
+                'error': f'❌ Нельзя отгрузить {qty} шт! Доступно: {available} (остаток: {balance}, в резерве: {reserved})'
+            }), 400
+        else:
+            return jsonify({
+                'error': f'❌ Недостаточно товара! Остаток: {balance}'
+            }), 400
 
-    # Записываем отгрузку со знаком МИНУС
     conn.execute(
         "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
         (prod_id, -abs(qty), user, comment)
@@ -225,7 +275,6 @@ def ship():
 @login_required
 @role_required(['manager', 'admin'])
 def receive():
-    """API: Пополнение склада (увеличивает остаток). Только для manager и admin"""
     data = request.get_json()
     prod_id = data.get('product_id')
     qty = data.get('quantity')
@@ -236,8 +285,6 @@ def receive():
         return jsonify({'error': 'Некорректные данные'}), 400
 
     conn = get_db()
-    
-    # Записываем пополнение со знаком ПЛЮС
     conn.execute(
         "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
         (prod_id, abs(qty), user, comment)
@@ -248,25 +295,172 @@ def receive():
 
 
 # ============================================================
-# ВЫГРУЗКА В EXCEL (ТОЛЬКО ДЛЯ АДМИНА)
+# API - РЕЗЕРВЫ (Павел, Евгений, Виталий)
+# ============================================================
+
+@app.route('/api/reserve', methods=['POST'])
+@login_required
+def reserve_product():
+    username = session.get('username')
+    
+    if not can_reserve(username):
+        return jsonify({'error': f'❌ У пользователя {username} нет прав на резервирование'}), 403
+
+    data = request.get_json()
+    prod_id = data.get('product_id')
+    qty = data.get('quantity')
+    user = username
+    comment = (data.get('comment') or 'Без пометки').strip() or 'Без пометки'
+
+    if not prod_id or not qty or qty <= 0:
+        return jsonify({'error': 'Некорректные данные'}), 400
+
+    conn = get_db()
+    
+    check = conn.execute('''
+        SELECT 
+            COALESCE((SELECT SUM(quantity) FROM stock_moves WHERE product_id = ?), 0) as balance,
+            COALESCE((SELECT SUM(quantity) FROM reserves WHERE product_id = ? AND is_active = 1), 0) as reserved
+    ''', (prod_id, prod_id)).fetchone()
+    
+    available = check['balance'] - check['reserved']
+    
+    if available < qty:
+        conn.close()
+        return jsonify({
+            'error': f'Недостаточно товара для резерва! Доступно: {available} (остаток: {check["balance"]}, уже в резерве: {check["reserved"]})'
+        }), 400
+
+    cursor = conn.execute(
+        "INSERT INTO reserves (product_id, quantity, user, comment, is_active) VALUES (?, ?, ?, ?, 1)",
+        (prod_id, qty, user, comment)
+    )
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return jsonify({
+        'status': 'OK', 
+        'message': f'Зарезервировано {qty} единиц. Пометка: {comment}',
+        'reserve_id': new_id
+    })
+
+
+@app.route('/api/unreserve', methods=['POST'])
+@login_required
+def unreserve_product():
+    username = session.get('username')
+    
+    if not can_reserve(username):
+        return jsonify({'error': f'❌ У пользователя {username} нет прав на снятие резерва'}), 403
+
+    data = request.get_json()
+    reserve_id = data.get('reserve_id')
+    prod_id = data.get('product_id')
+    user = username
+
+    if not reserve_id and not prod_id:
+        return jsonify({'error': 'Не указан резерв или товар'}), 400
+
+    conn = get_db()
+
+    if reserve_id:
+        reserve = conn.execute(
+            "SELECT id, product_id, quantity, comment FROM reserves WHERE id = ? AND is_active = 1",
+            (reserve_id,)
+        ).fetchone()
+
+        if not reserve:
+            conn.close()
+            return jsonify({'error': 'Резерв не найден или уже снят'}), 400
+
+        conn.execute("UPDATE reserves SET is_active = 0 WHERE id = ?", (reserve_id,))
+        conn.execute(
+            "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+            (reserve['product_id'], 0, user, 
+             f'Снят резерв #{reserve_id} ({reserve["quantity"]} шт, пометка: {reserve["comment"]})')
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({
+            'status': 'OK', 
+            'message': f'Резерв #{reserve_id} снят ({reserve["quantity"]} шт)'
+        })
+
+    else:
+        reserves = conn.execute(
+            "SELECT id, quantity FROM reserves WHERE product_id = ? AND is_active = 1",
+            (prod_id,)
+        ).fetchall()
+
+        if not reserves:
+            conn.close()
+            return jsonify({'error': 'Нет активных резервов для этого товара'}), 400
+
+        total = sum(r['quantity'] for r in reserves)
+        count = len(reserves)
+
+        conn.execute(
+            "UPDATE reserves SET is_active = 0 WHERE product_id = ? AND is_active = 1",
+            (prod_id,)
+        )
+        conn.execute(
+            "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+            (prod_id, 0, user, f'Сняты все резервы ({count} шт): {total} ед.')
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({
+            'status': 'OK', 
+            'message': f'Снято {count} резервов на {total} единиц'
+        })
+
+
+@app.route('/api/reserves')
+@login_required
+def get_reserves():
+    """Список активных резервов (время — пермское)"""
+    conn = get_db()
+    reserves = conn.execute('''
+        SELECT 
+            r.id,
+            r.product_id,
+            p.name as product_name,
+            p.unit,
+            r.quantity,
+            r.user,
+            r.comment,
+            datetime(r.created_at, '+5 hours') as created_at
+        FROM reserves r
+        JOIN products p ON r.product_id = p.id
+        WHERE r.is_active = 1
+        ORDER BY p.name, r.created_at DESC
+    ''').fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in reserves])
+
+
+# ============================================================
+# ЭКСПОРТ В EXCEL
 # ============================================================
 
 @app.route('/export_excel')
 @login_required
 def export_excel():
-    """Экспорт актуальных остатков в Excel (только для админа)"""
-    # Проверяем, что пользователь админ
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     
     conn = get_db()
-    
-    # Получаем все товары с их текущими остатками
     data = conn.execute('''
         SELECT 
             p.id,
             p.name,
             COALESCE(SUM(sm.quantity), 0) as balance,
+            COALESCE((
+                SELECT SUM(r.quantity) 
+                FROM reserves r 
+                WHERE r.product_id = p.id AND r.is_active = 1
+            ), 0) as reserved,
             p.unit
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
@@ -275,12 +469,10 @@ def export_excel():
     ''').fetchall()
     conn.close()
     
-    # --- СОЗДАЕМ EXCEL-ФАЙЛ ---
     wb = Workbook()
     ws = wb.active
     ws.title = "Остатки склада"
     
-    # --- СТИЛИ ---
     header_font = Font(bold=True, color="FFFFFF", size=11)
     header_fill = PatternFill(start_color="1a3c5e", end_color="1a3c5e", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center")
@@ -296,8 +488,7 @@ def export_excel():
         bottom=Side(style='thin')
     )
     
-    # --- ЗАГОЛОВКИ ---
-    headers = ['№ п/п', 'Наименование позиции', 'Ед. изм.', 'Текущий остаток, шт']
+    headers = ['№ п/п', 'Наименование позиции', 'Ед. изм.', 'Остаток, шт', 'Резерв, шт', 'Доступно, шт']
     
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -306,81 +497,74 @@ def export_excel():
         cell.alignment = header_alignment
         cell.border = thin_border
     
-    # --- ЗАПОЛНЯЕМ ДАННЫЕ ---
     for row_idx, item in enumerate(data, 2):
-        # № п/п
+        available = item['balance'] - item['reserved']
+        
         cell = ws.cell(row=row_idx, column=1, value=item['id'])
         cell.font = data_font
         cell.alignment = number_alignment
         cell.border = thin_border
         
-        # Наименование
         cell = ws.cell(row=row_idx, column=2, value=item['name'])
         cell.font = data_font
         cell.alignment = data_alignment
         cell.border = thin_border
         
-        # Ед. изм.
         cell = ws.cell(row=row_idx, column=3, value=item['unit'] or 'шт')
         cell.font = data_font
         cell.alignment = number_alignment
         cell.border = thin_border
         
-        # Остаток
         cell = ws.cell(row=row_idx, column=4, value=item['balance'])
         cell.alignment = number_alignment
         cell.border = thin_border
-        
-        # Выделяем цветом в зависимости от остатка
         if item['balance'] < 5 and item['balance'] > 0:
-            # Мало остатка — желтый
             cell.font = Font(color="FF8F00", bold=True, size=10)
             cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
         elif item['balance'] <= 0:
-            # Нет в наличии — красный
             cell.font = Font(color="FF0000", bold=True, size=10)
             cell.fill = PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid")
-            cell.value = f"{item['balance']} (НЕТ В НАЛИЧИИ!)"
         else:
-            # Нормальный остаток
             cell.font = Font(color="1B5E20", size=10)
+        
+        cell = ws.cell(row=row_idx, column=5, value=item['reserved'])
+        cell.alignment = number_alignment
+        cell.border = thin_border
+        if item['reserved'] > 0:
+            cell.font = Font(color="F57C00", bold=True, size=10)
+            cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
+        else:
+            cell.font = data_font
+        
+        cell = ws.cell(row=row_idx, column=6, value=available)
+        cell.alignment = number_alignment
+        cell.border = thin_border
+        cell.font = Font(color="1B5E20", bold=True, size=10)
     
-    # --- АВТОПОДБОР ШИРИНЫ КОЛОНОК ---
-    column_widths = {
-        'A': 10,   # №
-        'B': 70,   # Наименование
-        'C': 14,   # Ед. изм.
-        'D': 25    # Остаток
-    }
-    
+    column_widths = {'A': 8, 'B': 60, 'C': 12, 'D': 15, 'E': 15, 'F': 15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
     
-    # --- ЗАМОРОЗКА ПЕРВОЙ СТРОКИ ---
     ws.freeze_panes = 'A2'
     
-    # --- СТАТИСТИКА ВНИЗУ ---
     total_items = len(data)
     low_items = len([item for item in data if 0 < item['balance'] < 5])
     zero_items = len([item for item in data if item['balance'] <= 0])
+    reserved_items = len([item for item in data if item['reserved'] > 0])
     
-    # Пустая строка
     ws.append([])
-    
-    # Информация о выгрузке
-    ws.append([f'Дата выгрузки: {datetime.now().strftime("%d.%m.%Y %H:%M")}'])
+    ws.append([f'Дата выгрузки: {get_perm_time().strftime("%d.%m.%Y %H:%M")} (Пермь)'])
     ws.append([f'Всего позиций: {total_items}'])
     ws.append([f'Позиций с остатком менее 5 шт: {low_items}'])
     ws.append([f'Позиций с нулевым остатком: {zero_items}'])
+    ws.append([f'Позиций в резерве: {reserved_items}'])
     ws.append([f'Выгрузил: {session.get("username")} (администратор)'])
     
-    # --- СОХРАНЯЕМ В БУФЕР ---
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
     
-    # --- ОТПРАВЛЯЕМ ФАЙЛ ---
-    filename = f"Остатки_склада_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    filename = f"Остатки_склада_{get_perm_time().strftime('%Y%m%d_%H%M')}.xlsx"
     
     return send_file(
         output,
@@ -391,7 +575,7 @@ def export_excel():
 
 
 # ============================================================
-# ЗАПУСК ПРИЛОЖЕНИЯ
+# ЗАПУСК
 # ============================================================
 
 if __name__ == '__main__':
