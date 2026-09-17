@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Склад: Учет остатков</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #f0f2f5; 
+            margin: 0; 
+            padding: 20px; 
+            color: #333;
+        }
+        .container { 
+            max-width: 1500px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+        }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            flex-wrap: wrap; 
+            border-bottom: 2px solid #eee; 
+            padding-bottom: 15px; 
+            margin-bottom: 20px; 
+            gap: 15px;
+        }
+        .header h1 { margin: 0; color: #1a3c5e; font-size: 24px; }
+        .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .user-badge { 
+            background: #1a3c5e; 
+            color: white; 
+            padding: 6px 16px; 
+            border-radius: 20px; 
+            font-weight: bold; 
+            font-size: 14px; 
+        }
+        .btn-nav { 
+            padding: 7px 16px; 
+            border-radius: 6px; 
+            text-decoration: none; 
+            font-weight: bold; 
+            font-size: 14px; 
+            color: white;
+            transition: 0.2s;
+        }
+        .btn-nav:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+        .btn-logout { background: #d32f2f; }
+        .btn-logout:hover { background: #b71c1c; }
+        .btn-history { background: #1a3c5e; }
+        .btn-history:hover { background: #0f2a40; }
+        .btn-excel { background: #2e7d32; }
+        .btn-excel:hover { background: #1b5e20; }
+        .btn-reserves { background: #f57c00; }
+        .btn-reserves:hover { background: #e65100; }
+
+        .tabs { 
+            display: flex; 
+            gap: 5px; 
+            margin-bottom: 20px; 
+            border-bottom: 2px solid #ddd; 
+            flex-wrap: wrap; 
+        }
+        .tab-btn { 
+            padding: 12px 25px; 
+            border: none; 
+            background: #e9ecef; 
+            cursor: pointer; 
+            font-size: 15px; 
+            font-weight: bold; 
+            border-radius: 8px 8px 0 0; 
+            transition: 0.2s; 
+            color: #555;
+        }
+        .tab-btn.active { background: #1a3c5e; color: white; }
+        .tab-btn:hover:not(.active) { background: #dee2e6; }
+        .tab-btn.hidden { display: none !important; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        #searchInput { 
+            width: 100%; 
+            padding: 14px 20px; 
+            font-size: 16px; 
+            border: 2px solid #ddd; 
+            border-radius: 8px; 
+            margin-bottom: 15px; 
+            transition: 0.2s;
+        }
+        #searchInput:focus { 
+            border-color: #1a3c5e; 
+            outline: none; 
+            box-shadow: 0 0 0 3px rgba(26,60,94,0.1);
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { 
+            background: #1a3c5e; 
+            color: white; 
+            padding: 12px 10px; 
+            text-align: left; 
+            position: sticky; 
+            top: 0; 
+            font-size: 13px; 
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        td { 
+            padding: 12px 10px; 
+            border-bottom: 1px solid #eee; 
+            vertical-align: top;
+            font-size: 14px; 
+        }
+        tr:hover td { background: #f9f9f9; }
+        
+        .id-col { color: #888; font-weight: 600; font-size: 13px; padding-top: 16px; }
+        .name-col { font-weight: 600; color: #1a3c5e; padding-top: 16px; }
+        .balance { font-weight: 700; font-size: 15px; color: #1a3c5e; padding-top: 16px; }
+        .reserved { color: #f57c00; font-weight: 700; padding-top: 16px; }
+        .available { color: #2e7d32; font-weight: 700; padding-top: 16px; }
+        .available.zero { color: #d32f2f; }
+        
+        .low { background-color: #fff5f5; } 
+        .low .balance { color: #d32f2f; }
+        .has-reserve { background-color: #fffaf3; }
+        .fully-reserved { background-color: #f5f5f5; }
+
+        .actions-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 320px;
+        }
+        
+        .buttons-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
+        
+        .qty-input { 
+            width: 65px; 
+            padding: 7px 8px; 
+            border: 2px solid #ddd; 
+            border-radius: 6px; 
+            font-size: 14px; 
+            text-align: center; 
+            font-weight: 600;
+            transition: 0.2s;
+            flex-shrink: 0;
+        }
+        .qty-input:focus { 
+            border-color: #1a3c5e; 
+            outline: none; 
+            box-shadow: 0 0 0 2px rgba(26,60,94,0.15);
+        }
+        .qty-input:disabled { 
+            background: #f0f0f0; 
+            cursor: not-allowed; 
+            color: #999;
+        }
+        
+        .btn-action {
+            padding: 7px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            white-space: nowrap;
+        }
+        .btn-ship { background: #d32f2f; color: white; }
+        .btn-ship:hover:not(:disabled) { background: #b71c1c; transform: translateY(-1px); }
+        .btn-ship:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .btn-reserve { background: #f57c00; color: white; }
+        .btn-reserve:hover { background: #e65100; transform: translateY(-1px); }
+        
+        .btn-unreserve { 
+            background: #fff; 
+            color: #607d8b; 
+            border: 2px solid #607d8b; 
+            padding: 5px 12px;
+            font-size: 12px;
+        }
+        .btn-unreserve:hover { background: #607d8b; color: white; }
+        
+        .btn-receive { background: #2e7d32; color: white; }
+        .btn-receive:hover { background: #1b5e20; transform: translateY(-1px); }
+        
+        .comment-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f5f8fc;
+            border: 1px solid #4a7fb5;
+            border-radius: 6px;
+            padding: 4px 10px 4px 8px;
+            transition: 0.2s;
+            margin-top: 2px;
+        }
+        .comment-wrapper:focus-within {
+            border-color: #1a3c5e;
+            background: #fff;
+            box-shadow: 0 0 0 2px rgba(74,127,181,0.2);
+        }
+        .comment-label {
+            font-size: 14px;
+            opacity: 0.75;
+            flex-shrink: 0;
+        }
+        .comment-input {
+            flex: 1;
+            width: 100%;
+            padding: 4px 2px;
+            border: none;
+            background: transparent;
+            font-size: 12px;
+            font-family: inherit;
+            color: #000;
+            outline: none;
+        }
+        .comment-input::placeholder {
+            color: #6c8eb5;
+            font-style: italic;
+            opacity: 0.7;
+        }
+
+        #message { margin: 15px 0; padding: 12px 20px; border-radius: 8px; display: none; font-weight: 500; }
+        .success { background: #e8f5e9; color: #1e5a1e; border-left: 4px solid #2e7d32; display: block !important; }
+        .error { background: #ffebee; color: #a11f1f; border-left: 4px solid #d32f2f; display: block !important; }
+        
+        .footer { 
+            margin-top: 25px; 
+            color: #999; 
+            font-size: 13px; 
+            border-top: 1px solid #eee; 
+            padding-top: 15px; 
+            display: flex; 
+            justify-content: space-between; 
+            flex-wrap: wrap; 
+            gap: 10px;
+        }
+        
+        .legend { 
+            display: flex; 
+            gap: 20px; 
+            margin: 10px 0 15px 0; 
+            font-size: 13px; 
+            flex-wrap: wrap; 
+            color: #666;
+        }
+        .legend-item { display: flex; align-items: center; gap: 6px; }
+        .legend-color { width: 14px; height: 14px; border-radius: 3px; }
+        
+        @media (max-width: 768px) {
+            .header { flex-direction: column; align-items: stretch; }
+            .header-actions { justify-content: center; }
+            .tab-btn { padding: 10px 14px; font-size: 13px; flex: 1; text-align: center; }
+            td, th { padding: 8px 6px; font-size: 12px; }
+            .actions-cell { min-width: 240px; }
+            .qty-input { width: 50px; }
+            .btn-action { padding: 6px 10px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📦 Учет склада</h1>
+        <div class="header-actions">
+            <span class="user-badge">👤 {{ username }}</span>
+            
+            <a href="/reserves" class="btn-nav btn-reserves" target="_blank">📌 Резервы</a>
+            
+            {% if session.get('role') == 'admin' %}
+                <a href="/history" class="btn-nav btn-history" target="_blank">📜 Журнал</a>
+                <a href="/export_excel" class="btn-nav btn-excel" target="_blank">📊 Excel</a>
+            {% endif %}
+            
+            <a href="/logout" class="btn-nav btn-logout">🚪 Выйти</a>
+        </div>
+    </div>
+    
+    <div id="message"></div>
+
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="tabShip">📤 Отгрузка и резерв</button>
+        <button class="tab-btn" data-tab="tabReceive" id="receiveTabBtn">📥 Пополнение</button>
+    </div>
+
+    <input type="text" id="searchInput" placeholder="🔎 Поиск по названию или артикулу ...">
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background:#fffaf3; border:1px solid #f57c00;"></div> Есть резерв</div>
+        <div class="legend-item"><div class="legend-color" style="background:#fff5f5; border:1px solid #d32f2f;"></div> Мало остатка (&lt; 5)</div>
+        <div class="legend-item"><div class="legend-color" style="background:#f5f5f5; border:1px solid #999;"></div> Весь в резерве</div>
+    </div>
+
+    <div id="tabShip" class="tab-content active">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:50px;">ID</th>
+                    <th>Наименование</th>
+                    <th style="width:100px;">Остаток</th>
+                    <th style="width:100px;">Резерв</th>
+                    <th style="width:110px;">Доступно</th>
+                    <th style="width:380px;">Действия</th>
+                </tr>
+            </thead>
+            <tbody id="shipTable"></tbody>
+        </table>
+    </div>
+
+    <div id="tabReceive" class="tab-content">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:50px;">ID</th>
+                    <th>Наименование</th>
+                    <th style="width:120px;">Текущий остаток</th>
+                    <th style="width:150px;">Сколько добавить?</th>
+                    <th style="width:160px;">Действие</th>
+                </tr>
+            </thead>
+            <tbody id="receiveTable"></tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <span id="updateTime"></span>
+        <span>⚡ Данные обновляются автоматически каждые 30 секунд</span>
+    </div>
+</div>
+
+<script>
+    const msgDiv = document.getElementById('message');
+    const searchInput = document.getElementById('searchInput');
+    const shipTableBody = document.getElementById('shipTable');
+    const receiveTableBody = document.getElementById('receiveTable');
+    let currentUserRole = '';
+    let currentUsername = '';
+    let canShip = false;
+    let canReserve = false;
+
+    function getPermTime() {
+        const now = new Date();
+        const permOffset = 5 * 60;
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        return new Date(utc + (permOffset * 60000));
+    }
+
+    function formatPermTime() {
+        const perm = getPermTime();
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(perm.getDate())}.${pad(perm.getMonth() + 1)}.${perm.getFullYear()} ${pad(perm.getHours())}:${pad(perm.getMinutes())}:${pad(perm.getSeconds())}`;
+    }
+
+    async function getCurrentUser() {
+        try {
+            const resp = await fetch('/api/current_user');
+            const data = await resp.json();
+            currentUserRole = data.role;
+            currentUsername = data.username;
+            canShip = data.can_ship;
+            canReserve = data.can_reserve;
+            
+            // === ОТЛАДКА ===
+            console.log('👤 Пользователь:', currentUsername);
+            console.log('   role:', currentUserRole);
+            console.log('   can_ship:', canShip);
+            console.log('   can_reserve:', canReserve);
+            
+            // Вкладка "Пополнение" только для админа (Павел)
+            const receiveTab = document.getElementById('receiveTabBtn');
+            if (currentUserRole !== 'admin') {
+                receiveTab.classList.add('hidden');
+                console.log('❌ Вкладка "Пополнение" скрыта (role != admin)');
+            } else {
+                receiveTab.classList.remove('hidden');
+                console.log('✅ Вкладка "Пополнение" показана');
+            }
+        } catch (e) {
+            console.error('Ошибка получения пользователя:', e);
+        }
+    }
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelector(`[data-tab="${tabId}"]`)?.classList.add('active');
+        document.getElementById(tabId).classList.add('active');
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            if (this.classList.contains('hidden')) return;
+            switchTab(this.dataset.tab);
+        });
+    });
+
+    async function loadData() {
+        try {
+            const resp = await fetch('/api/balances');
+            const items = await resp.json();
+            
+            shipTableBody.innerHTML = '';
+            receiveTableBody.innerHTML = '';
+            
+            items.forEach(item => {
+                const hasReserve = item.reserved > 0;
+                const isFullyBlocked = item.available <= 0;
+                
+                const userCanShip = canShip && !isFullyBlocked;
+                const userCanReserve = canReserve && !isFullyBlocked;
+                const qtyDisabled = !userCanShip && !userCanReserve;
+                
+                const shipRow = document.createElement('tr');
+                if (isFullyBlocked) {
+                    shipRow.className = 'fully-reserved';
+                } else if (hasReserve) {
+                    shipRow.className = 'has-reserve';
+                } else if (item.balance < 5) {
+                    shipRow.className = 'low';
+                }
+                
+                const availableClass = item.available <= 0 ? 'available zero' : 'available';
+                
+                let shipButton = '';
+                if (canShip) {
+                    shipButton = userCanShip
+                        ? `<button class="btn-action btn-ship" onclick="shipProduct(${item.id}, this)">📤 Отгрузить</button>`
+                        : '<button class="btn-action btn-ship" disabled>🔒 Весь в резерве</button>';
+                }
+                
+                let reserveButton = '';
+                if (canReserve) {
+                    reserveButton = userCanReserve
+                        ? `<button class="btn-action btn-reserve" onclick="reserveProduct(${item.id}, this)">📌 В резерв</button>`
+                        : '<button class="btn-action btn-reserve" disabled style="background:#ccc; cursor:not-allowed;">📌 В резерв</button>';
+                }
+                
+                const unreserveButton = (canReserve && hasReserve)
+                    ? `<button class="btn-action btn-unreserve" onclick="unreserveAll(${item.id}, this)" title="Снять все резервы">🔓 Снять</button>` 
+                    : '';
+                
+                let commentField = '';
+                if (canReserve) {
+                    commentField = `
+                        <div class="comment-wrapper">
+                            <span class="comment-label">✏️</span>
+                            <input type="text" 
+                                   class="comment-input"
+                                   id="comment_${item.id}" 
+                                   placeholder="Пометка для резерва (например: Заказ №123)">
+                        </div>
+                    `;
+                }
+                
+                shipRow.innerHTML = `
+                    <td class="id-col">${item.id}</td>
+                    <td class="name-col">${item.name}</td>
+                    <td class="balance">${item.balance} ${item.unit || ''}</td>
+                    <td class="reserved">${item.reserved > 0 ? item.reserved + ' ' + (item.unit || 'шт') : '—'}</td>
+                    <td class="${availableClass}">${item.available} ${item.unit || ''}</td>
+                    <td>
+                        <div class="actions-cell">
+                            <div class="buttons-row">
+                                <input type="number" 
+                                       class="qty-input"
+                                       id="qty_${item.id}" 
+                                       value="1" 
+                                       min="1" 
+                                       max="${item.available > 0 ? item.available : 1}"
+                                       ${qtyDisabled ? 'disabled' : ''}
+                                       title="Введите количество">
+                                
+                                ${shipButton}
+                                ${reserveButton}
+                                ${unreserveButton}
+                            </div>
+                            ${commentField}
+                        </div>
+                    </td>
+                `;
+                shipTableBody.appendChild(shipRow);
+
+                const receiveRow = document.createElement('tr');
+                receiveRow.innerHTML = `
+                    <td class="id-col">${item.id}</td>
+                    <td class="name-col">${item.name}</td>
+                    <td class="balance">${item.balance} ${item.unit || ''}</td>
+                    <td style="vertical-align: middle;">
+                        <input type="number" 
+                               class="qty-input"
+                               id="rec_qty_${item.id}" 
+                               value="10" 
+                               min="1">
+                    </td>
+                    <td style="vertical-align: middle;">
+                        <button class="btn-action btn-receive" onclick="receiveProduct(${item.id}, this)">➕ Пополнить</button>
+                    </td>
+                `;
+                receiveTableBody.appendChild(receiveRow);
+            });
+            
+            document.getElementById('updateTime').textContent = `🔄 Обновлено: ${formatPermTime()} (Пермь)`;
+        } catch (e) {
+            showMessage('❌ Ошибка загрузки данных', 'error');
+            console.error(e);
+        }
+    }
+
+    async function shipProduct(id, btn) {
+        const input = document.getElementById(`qty_${id}`);
+        const qty = parseInt(input.value);
+
+        if (!qty || qty < 1) { 
+            showMessage('⚠️ Введите число больше 0', 'error'); 
+            return; 
+        }
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = '⏳...';
+
+        try {
+            const resp = await fetch('/api/ship', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    product_id: id, 
+                    quantity: qty,
+                    comment: 'Отгрузка'
+                })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                showMessage(`✅ Отгружено ${qty} единиц!`, 'success');
+                loadData();
+            } else {
+                showMessage('❌ ' + result.error, 'error');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка сервера', 'error');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    async function reserveProduct(id, btn) {
+        const qtyInput = document.getElementById(`qty_${id}`);
+        const commentInput = document.getElementById(`comment_${id}`);
+        
+        if (!qtyInput) {
+            showMessage('❌ Ошибка: поле количества не найдено', 'error');
+            return;
+        }
+        
+        const qty = parseInt(qtyInput.value);
+        const comment = (commentInput?.value || '').trim() || 'Без пометки';
+
+        if (!qty || qty < 1) { 
+            showMessage('⚠️ Введите число больше 0', 'error'); 
+            return; 
+        }
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = '⏳...';
+
+        try {
+            const resp = await fetch('/api/reserve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    product_id: id, 
+                    quantity: qty,
+                    comment: comment
+                })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                showMessage(`📌 Зарезервировано ${qty} шт. Пометка: "${comment}"`, 'success');
+                qtyInput.value = 1;
+                if (commentInput) commentInput.value = '';
+                loadData();
+            } else {
+                showMessage('❌ ' + result.error, 'error');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка сервера', 'error');
+            console.error(e);
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    async function unreserveAll(id, btn) {
+        if (!confirm('Снять ВСЕ резервы с этого товара?')) return;
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = '⏳...';
+
+        try {
+            const resp = await fetch('/api/unreserve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: id })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                showMessage(`🔓 ${result.message}`, 'success');
+                loadData();
+            } else {
+                showMessage('❌ ' + result.error, 'error');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка сервера', 'error');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    async function receiveProduct(id, btn) {
+        const input = document.getElementById(`rec_qty_${id}`);
+        const qty = parseInt(input.value);
+
+        if (!qty || qty < 1) { 
+            showMessage('⚠️ Введите число больше 0', 'error'); 
+            return; 
+        }
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = '⏳...';
+
+        try {
+            const resp = await fetch('/api/receive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    product_id: id, 
+                    quantity: qty,
+                    comment: 'Пополнение'
+                })
+            });
+            const result = await resp.json();
+            if (result.status === 'OK') {
+                showMessage(`✅ Пополнено на ${qty} единиц!`, 'success');
+                loadData();
+            } else {
+                showMessage('❌ ' + (result.error || 'Доступ запрещен'), 'error');
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка сервера', 'error');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    function showMessage(text, type) {
+        msgDiv.textContent = text;
+        msgDiv.className = type;
+        clearTimeout(msgDiv._timer);
+        msgDiv._timer = setTimeout(() => { msgDiv.className = ''; msgDiv.textContent = ''; }, 4000);
+    }
+
+    searchInput.addEventListener('input', function() {
+        const filter = this.value.toLowerCase();
+        document.querySelectorAll('#shipTable tr, #receiveTable tr').forEach(row => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(filter) ? '' : 'none';
+        });
+    });
+
+    window.onload = async function() {
+        await getCurrentUser();
+        await loadData();
+        setInterval(loadData, 30000);
+    };
+</script>
+</body>
+</html>
