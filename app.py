@@ -18,7 +18,6 @@ app.permanent_session_lifetime = timedelta(hours=8)
 # ============================================================
 
 def get_perm_time():
-    """Возвращает текущее пермское время (UTC+5)"""
     return datetime.utcnow() + timedelta(hours=5)
 
 
@@ -57,13 +56,10 @@ def role_required(allowed_roles):
 
 
 # ============================================================
-# ПРАВА ДОСТУПА ПО ИМЕНАМ
+# ПРАВА ПОЛЬЗОВАТЕЛЕЙ
 # ============================================================
 
-# Кто МОЖЕТ отгружать
 CAN_SHIP_USERS = ['Павел', 'Валерий']
-
-# Кто МОЖЕТ резервировать и снимать резерв
 CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий']
 
 
@@ -95,7 +91,6 @@ def index():
 @app.route('/history')
 @login_required
 def history():
-    """Журнал (только для админа). Время — пермское."""
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     
@@ -121,6 +116,15 @@ def history():
 @login_required
 def reserves_page():
     return render_template('reserves.html', username=session.get('username'))
+
+
+@app.route('/admin/products')
+@login_required
+def admin_products():
+    """Страница управления товарами (только для админа)"""
+    if session.get('role') != 'admin':
+        return render_template('access_denied.html'), 403
+    return render_template('admin_products.html', username=session.get('username'))
 
 
 @app.route('/logout')
@@ -224,7 +228,6 @@ def balances():
 @app.route('/api/ship', methods=['POST'])
 @login_required
 def ship():
-    """Отгрузка. Только для Павла и Валерия."""
     username = session.get('username')
     
     if not can_ship(username):
@@ -233,7 +236,6 @@ def ship():
     data = request.get_json()
     prod_id = data.get('product_id')
     qty = data.get('quantity')
-    user = username
     comment = data.get('comment', 'Отгрузка')
 
     if not prod_id or not qty or qty <= 0:
@@ -264,7 +266,7 @@ def ship():
 
     conn.execute(
         "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
-        (prod_id, -abs(qty), user, comment)
+        (prod_id, -abs(qty), username, comment)
     )
     conn.commit()
     conn.close()
@@ -295,7 +297,184 @@ def receive():
 
 
 # ============================================================
-# API - РЕЗЕРВЫ (Павел, Евгений, Виталий)
+# API - УПРАВЛЕНИЕ ТОВАРАМИ (только для админа)
+# ============================================================
+
+@app.route('/api/admin/products', methods=['GET'])
+@login_required
+@role_required(['admin'])
+def admin_get_products():
+    """Список всех товаров с остатками (для админ-панели)"""
+    conn = get_db()
+    data = conn.execute('''
+        SELECT 
+            p.id, 
+            p.name, 
+            p.unit, 
+            COALESCE(SUM(sm.quantity), 0) as balance,
+            COALESCE((
+                SELECT SUM(r.quantity) 
+                FROM reserves r 
+                WHERE r.product_id = p.id AND r.is_active = 1
+            ), 0) as reserved,
+            (SELECT COUNT(*) FROM stock_moves WHERE product_id = p.id) as moves_count
+        FROM products p
+        LEFT JOIN stock_moves sm ON p.id = sm.product_id
+        GROUP BY p.id
+        ORDER BY p.id
+    ''').fetchall()
+    conn.close()
+    
+    result = []
+    for row in data:
+        item = dict(row)
+        item['available'] = item['balance'] - item['reserved']
+        result.append(item)
+    
+    return jsonify(result)
+
+
+@app.route('/api/admin/products', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def admin_add_product():
+    """Добавить новый товар"""
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    unit = (data.get('unit') or 'шт').strip() or 'шт'
+    initial_qty = data.get('initial_qty', 0)
+    user = session.get('username', 'admin')
+    
+    if not name:
+        return jsonify({'error': 'Укажите наименование товара'}), 400
+    
+    try:
+        initial_qty = int(initial_qty)
+        if initial_qty < 0:
+            initial_qty = 0
+    except (ValueError, TypeError):
+        initial_qty = 0
+    
+    conn = get_db()
+    
+    # Проверяем, нет ли уже товара с таким именем
+    existing = conn.execute("SELECT id FROM products WHERE name = ?", (name,)).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
+    
+    # Добавляем товар
+    cursor = conn.execute("INSERT INTO products (name, unit) VALUES (?, ?)", (name, unit))
+    new_id = cursor.lastrowid
+    
+    # Если указан начальный остаток — создаём движение
+    if initial_qty > 0:
+        conn.execute(
+            "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+            (new_id, initial_qty, user, 'Начальный остаток')
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"✅ Добавлен товар: ID={new_id}, '{name}', {initial_qty} {unit}")
+    
+    return jsonify({
+        'status': 'OK',
+        'message': f'Товар "{name}" добавлен (остаток: {initial_qty} {unit})',
+        'product_id': new_id
+    })
+
+
+@app.route('/api/admin/products/<int:product_id>', methods=['PUT'])
+@login_required
+@role_required(['admin'])
+def admin_update_product(product_id):
+    """Редактировать название и единицу измерения товара"""
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    unit = (data.get('unit') or 'шт').strip() or 'шт'
+    
+    if not name:
+        return jsonify({'error': 'Укажите наименование товара'}), 400
+    
+    conn = get_db()
+    
+    product = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not product:
+        conn.close()
+        return jsonify({'error': 'Товар не найден'}), 404
+    
+    # Проверяем, что имя не занято другим товаром
+    duplicate = conn.execute(
+        "SELECT id FROM products WHERE name = ? AND id != ?",
+        (name, product_id)
+    ).fetchone()
+    if duplicate:
+        conn.close()
+        return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
+    
+    conn.execute(
+        "UPDATE products SET name = ?, unit = ? WHERE id = ?",
+        (name, unit, product_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    print(f"✏️ Обновлён товар #{product_id}: '{name}', {unit}")
+    
+    return jsonify({'status': 'OK', 'message': f'Товар обновлён'})
+
+
+@app.route('/api/admin/products/<int:product_id>', methods=['DELETE'])
+@login_required
+@role_required(['admin'])
+def admin_delete_product(product_id):
+    """Удалить товар. Разрешено только если нет отгрузок/резервов/пополнений."""
+    conn = get_db()
+    
+    product = conn.execute("SELECT id, name FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not product:
+        conn.close()
+        return jsonify({'error': 'Товар не найден'}), 404
+    
+    # Проверяем движения
+    moves = conn.execute(
+        "SELECT COUNT(*) as cnt FROM stock_moves WHERE product_id = ?",
+        (product_id,)
+    ).fetchone()
+    
+    # Проверяем активные резервы
+    reserves = conn.execute(
+        "SELECT COUNT(*) as cnt FROM reserves WHERE product_id = ? AND is_active = 1",
+        (product_id,)
+    ).fetchone()
+    
+    if moves['cnt'] > 1 or reserves['cnt'] > 0:
+        conn.close()
+        reasons = []
+        if moves['cnt'] > 1:
+            reasons.append(f'движений: {moves["cnt"]}')
+        if reserves['cnt'] > 0:
+            reasons.append(f'активных резервов: {reserves["cnt"]}')
+        return jsonify({
+            'error': f'Нельзя удалить товар "{product["name"]}" — есть история: {", ".join(reasons)}. Сначала снимите резервы и убедитесь, что остаток = 0.'
+        }), 400
+    
+    # Удаляем движения товара (если только 1 — начальный остаток)
+    conn.execute("DELETE FROM stock_moves WHERE product_id = ?", (product_id,))
+    conn.execute("DELETE FROM reserves WHERE product_id = ?", (product_id,))
+    conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    conn.commit()
+    conn.close()
+    
+    print(f"🗑️ Удалён товар #{product_id}: '{product['name']}'")
+    
+    return jsonify({'status': 'OK', 'message': f'Товар "{product["name"]}" удалён'})
+
+
+# ============================================================
+# API - РЕЗЕРВЫ
 # ============================================================
 
 @app.route('/api/reserve', methods=['POST'])
@@ -309,7 +488,6 @@ def reserve_product():
     data = request.get_json()
     prod_id = data.get('product_id')
     qty = data.get('quantity')
-    user = username
     comment = (data.get('comment') or 'Без пометки').strip() or 'Без пометки'
 
     if not prod_id or not qty or qty <= 0:
@@ -333,7 +511,7 @@ def reserve_product():
 
     cursor = conn.execute(
         "INSERT INTO reserves (product_id, quantity, user, comment, is_active) VALUES (?, ?, ?, ?, 1)",
-        (prod_id, qty, user, comment)
+        (prod_id, qty, username, comment)
     )
     new_id = cursor.lastrowid
     conn.commit()
@@ -357,7 +535,6 @@ def unreserve_product():
     data = request.get_json()
     reserve_id = data.get('reserve_id')
     prod_id = data.get('product_id')
-    user = username
 
     if not reserve_id and not prod_id:
         return jsonify({'error': 'Не указан резерв или товар'}), 400
@@ -377,7 +554,7 @@ def unreserve_product():
         conn.execute("UPDATE reserves SET is_active = 0 WHERE id = ?", (reserve_id,))
         conn.execute(
             "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
-            (reserve['product_id'], 0, user, 
+            (reserve['product_id'], 0, username, 
              f'Снят резерв #{reserve_id} ({reserve["quantity"]} шт, пометка: {reserve["comment"]})')
         )
         conn.commit()
@@ -406,7 +583,7 @@ def unreserve_product():
         )
         conn.execute(
             "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
-            (prod_id, 0, user, f'Сняты все резервы ({count} шт): {total} ед.')
+            (prod_id, 0, username, f'Сняты все резервы ({count} шт): {total} ед.')
         )
         conn.commit()
         conn.close()
@@ -419,7 +596,6 @@ def unreserve_product():
 @app.route('/api/reserves')
 @login_required
 def get_reserves():
-    """Список активных резервов (время — пермское)"""
     conn = get_db()
     reserves = conn.execute('''
         SELECT 

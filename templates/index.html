@@ -59,6 +59,8 @@
         .btn-excel:hover { background: #1b5e20; }
         .btn-reserves { background: #f57c00; }
         .btn-reserves:hover { background: #e65100; }
+        .btn-admin { background: #6a1b9a; }
+        .btn-admin:hover { background: #4a148c; }
 
         .tabs { 
             display: flex; 
@@ -282,6 +284,7 @@
             <a href="/reserves" class="btn-nav btn-reserves" target="_blank">📌 Резервы</a>
             
             {% if session.get('role') == 'admin' %}
+                <a href="/admin/products" class="btn-nav btn-admin" target="_blank">⚙️ Товары</a>
                 <a href="/history" class="btn-nav btn-history" target="_blank">📜 Журнал</a>
                 <a href="/export_excel" class="btn-nav btn-excel" target="_blank">📊 Excel</a>
             {% endif %}
@@ -294,7 +297,7 @@
 
     <div class="tabs">
         <button class="tab-btn active" data-tab="tabShip">📤 Отгрузка и резерв</button>
-        <button class="tab-btn" data-tab="tabReceive" id="receiveTabBtn">📥 Пополнение</button>
+        <button class="tab-btn hidden" data-tab="tabReceive" id="receiveTabBtn">📥 Пополнение</button>
     </div>
 
     <input type="text" id="searchInput" placeholder="🔎 Поиск по названию или артикулу ...">
@@ -374,13 +377,11 @@
             canShip = data.can_ship;
             canReserve = data.can_reserve;
             
-            // === ОТЛАДКА ===
             console.log('👤 Пользователь:', currentUsername);
             console.log('   role:', currentUserRole);
             console.log('   can_ship:', canShip);
             console.log('   can_reserve:', canReserve);
             
-            // Вкладка "Пополнение" только для админа (Павел)
             const receiveTab = document.getElementById('receiveTabBtn');
             if (currentUserRole !== 'admin') {
                 receiveTab.classList.add('hidden');
