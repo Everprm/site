@@ -80,7 +80,7 @@
         }
         .tab-btn.active { background: #1a3c5e; color: white; }
         .tab-btn:hover:not(.active) { background: #dee2e6; }
-        .tab-btn.hidden { display: none; }
+        .tab-btn.hidden { display: none !important; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
@@ -294,7 +294,7 @@
 
     <div class="tabs">
         <button class="tab-btn active" data-tab="tabShip">📤 Отгрузка и резерв</button>
-        <button class="tab-btn hidden" data-tab="tabReceive" id="receiveTabBtn">📥 Пополнение</button>
+        <button class="tab-btn" data-tab="tabReceive" id="receiveTabBtn">📥 Пополнение</button>
     </div>
 
     <input type="text" id="searchInput" placeholder="🔎 Поиск по названию или артикулу ...">
@@ -374,15 +374,20 @@
             canShip = data.can_ship;
             canReserve = data.can_reserve;
             
+            // === ОТЛАДКА ===
             console.log('👤 Пользователь:', currentUsername);
+            console.log('   role:', currentUserRole);
             console.log('   can_ship:', canShip);
             console.log('   can_reserve:', canReserve);
             
+            // Вкладка "Пополнение" только для админа (Павел)
+            const receiveTab = document.getElementById('receiveTabBtn');
             if (currentUserRole !== 'admin') {
-                document.getElementById('receiveTabBtn').classList.add('hidden');
-                if (document.getElementById('tabReceive').classList.contains('active')) {
-                    switchTab('tabShip');
-                }
+                receiveTab.classList.add('hidden');
+                console.log('❌ Вкладка "Пополнение" скрыта (role != admin)');
+            } else {
+                receiveTab.classList.remove('hidden');
+                console.log('✅ Вкладка "Пополнение" показана');
             }
         } catch (e) {
             console.error('Ошибка получения пользователя:', e);
@@ -415,11 +420,8 @@
                 const hasReserve = item.reserved > 0;
                 const isFullyBlocked = item.available <= 0;
                 
-                // Может ли пользователь отгружать?
                 const userCanShip = canShip && !isFullyBlocked;
-                // Может ли пользователь резервировать?
                 const userCanReserve = canReserve && !isFullyBlocked;
-                // Поле ввода количества активно, если пользователь может ХОТЯ БЫ что-то сделать
                 const qtyDisabled = !userCanShip && !userCanReserve;
                 
                 const shipRow = document.createElement('tr');
@@ -433,7 +435,6 @@
                 
                 const availableClass = item.available <= 0 ? 'available zero' : 'available';
                 
-                // Кнопка "Отгрузить"
                 let shipButton = '';
                 if (canShip) {
                     shipButton = userCanShip
@@ -441,7 +442,6 @@
                         : '<button class="btn-action btn-ship" disabled>🔒 Весь в резерве</button>';
                 }
                 
-                // Кнопка "В резерв"
                 let reserveButton = '';
                 if (canReserve) {
                     reserveButton = userCanReserve
@@ -449,12 +449,10 @@
                         : '<button class="btn-action btn-reserve" disabled style="background:#ccc; cursor:not-allowed;">📌 В резерв</button>';
                 }
                 
-                // Кнопка "Снять"
                 const unreserveButton = (canReserve && hasReserve)
                     ? `<button class="btn-action btn-unreserve" onclick="unreserveAll(${item.id}, this)" title="Снять все резервы">🔓 Снять</button>` 
                     : '';
                 
-                // Поле пометки
                 let commentField = '';
                 if (canReserve) {
                     commentField = `
