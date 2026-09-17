@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for, send_file
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import bcrypt
 from datetime import datetime, timedelta
 import os
@@ -7,10 +8,17 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from functools import wraps
+from dotenv import load_dotenv
+
+# Загружаем переменные из .env
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey123!@#$%'
 app.permanent_session_lifetime = timedelta(hours=8)
+
+# Строка подключения к PostgreSQL
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 
 # ============================================================
@@ -18,6 +26,7 @@ app.permanent_session_lifetime = timedelta(hours=8)
 # ============================================================
 
 def get_perm_time():
+    """Возвращает текущее пермское время (UTC+5)"""
     return datetime.utcnow() + timedelta(hours=5)
 
 
@@ -26,8 +35,10 @@ def get_perm_time():
 # ============================================================
 
 def get_db():
-    conn = sqlite3.connect('warehouse.db')
-    conn.row_factory = sqlite3.Row
+    """Подключение к PostgreSQL"""
+    if not DATABASE_URL:
+        raise ValueError("Переменная окружения DATABASE_URL не задана!")
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 
@@ -95,19 +106,22 @@ def history():
         return render_template('access_denied.html'), 403
     
     conn = get_db()
-    logs = conn.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         SELECT 
             sm.id,
             p.name as product_name,
             sm.quantity,
             sm.user,
             sm.comment,
-            datetime(sm.created_at, '+5 hours') as created_at
+            to_char(sm.created_at + INTERVAL '5 hours', 'YYYY-MM-DD HH24:MI:SS') as created_at
         FROM stock_moves sm
         JOIN products p ON sm.product_id = p.id
         ORDER BY sm.created_at DESC
         LIMIT 200
-    ''').fetchall()
+    ''')
+    logs = cur.fetchall()
+    cur.close()
     conn.close()
     return render_template('history.html', logs=logs, username=session.get('username'))
 
@@ -121,7 +135,6 @@ def reserves_page():
 @app.route('/admin/products')
 @login_required
 def admin_products():
-    """Страница управления товарами (только для админа)"""
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     return render_template('admin_products.html', username=session.get('username'))
@@ -147,10 +160,10 @@ def api_login():
         return jsonify({'error': 'Введите логин и пароль'}), 400
     
     conn = get_db()
-    user = conn.execute(
-        "SELECT id, name, password_hash, role FROM users WHERE name = ?",
-        (username,)
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, password_hash, role FROM users WHERE name = %s", (username,))
+    user = cur.fetchone()
+    cur.close()
     conn.close()
     
     if not user:
@@ -185,7 +198,10 @@ def current_user():
 @login_required
 def get_users():
     conn = get_db()
-    users = conn.execute("SELECT name FROM users ORDER BY name").fetchall()
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM users ORDER BY name")
+    users = cur.fetchall()
+    cur.close()
     conn.close()
     return jsonify([u['name'] for u in users])
 
@@ -198,7 +214,8 @@ def get_users():
 @login_required
 def balances():
     conn = get_db()
-    data = conn.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         SELECT 
             p.id, 
             p.name, 
@@ -211,9 +228,11 @@ def balances():
             ), 0) as reserved
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
-        GROUP BY p.id
+        GROUP BY p.id, p.name, p.unit
         ORDER BY p.id
-    ''').fetchall()
+    ''')
+    data = cur.fetchall()
+    cur.close()
     conn.close()
     
     result = []
@@ -242,18 +261,21 @@ def ship():
         return jsonify({'error': 'Некорректные данные'}), 400
 
     conn = get_db()
+    cur = conn.cursor()
     
-    check = conn.execute('''
+    cur.execute('''
         SELECT 
-            COALESCE((SELECT SUM(quantity) FROM stock_moves WHERE product_id = ?), 0) as balance,
-            COALESCE((SELECT SUM(quantity) FROM reserves WHERE product_id = ? AND is_active = 1), 0) as reserved
-    ''', (prod_id, prod_id)).fetchone()
+            COALESCE((SELECT SUM(quantity) FROM stock_moves WHERE product_id = %s), 0) as balance,
+            COALESCE((SELECT SUM(quantity) FROM reserves WHERE product_id = %s AND is_active = 1), 0) as reserved
+    ''', (prod_id, prod_id))
+    check = cur.fetchone()
     
     balance = check['balance']
     reserved = check['reserved']
     available = balance - reserved
     
     if qty > available:
+        cur.close()
         conn.close()
         if reserved > 0:
             return jsonify({
@@ -264,11 +286,12 @@ def ship():
                 'error': f'❌ Недостаточно товара! Остаток: {balance}'
             }), 400
 
-    conn.execute(
-        "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+    cur.execute(
+        "INSERT INTO stock_moves (product_id, quantity, \"user\", comment) VALUES (%s, %s, %s, %s)",
         (prod_id, -abs(qty), username, comment)
     )
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({'status': 'OK', 'message': f'Отгружено {qty} единиц'})
 
@@ -287,11 +310,13 @@ def receive():
         return jsonify({'error': 'Некорректные данные'}), 400
 
     conn = get_db()
-    conn.execute(
-        "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO stock_moves (product_id, quantity, \"user\", comment) VALUES (%s, %s, %s, %s)",
         (prod_id, abs(qty), user, comment)
     )
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({'status': 'OK', 'message': f'Добавлено {qty} единиц'})
 
@@ -304,9 +329,9 @@ def receive():
 @login_required
 @role_required(['admin'])
 def admin_get_products():
-    """Список всех товаров с остатками (для админ-панели)"""
     conn = get_db()
-    data = conn.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         SELECT 
             p.id, 
             p.name, 
@@ -320,9 +345,11 @@ def admin_get_products():
             (SELECT COUNT(*) FROM stock_moves WHERE product_id = p.id) as moves_count
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
-        GROUP BY p.id
+        GROUP BY p.id, p.name, p.unit
         ORDER BY p.id
-    ''').fetchall()
+    ''')
+    data = cur.fetchall()
+    cur.close()
     conn.close()
     
     result = []
@@ -338,7 +365,6 @@ def admin_get_products():
 @login_required
 @role_required(['admin'])
 def admin_add_product():
-    """Добавить новый товар"""
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
@@ -356,25 +382,26 @@ def admin_add_product():
         initial_qty = 0
     
     conn = get_db()
+    cur = conn.cursor()
     
-    # Проверяем, нет ли уже товара с таким именем
-    existing = conn.execute("SELECT id FROM products WHERE name = ?", (name,)).fetchone()
+    cur.execute("SELECT id FROM products WHERE name = %s", (name,))
+    existing = cur.fetchone()
     if existing:
+        cur.close()
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    # Добавляем товар
-    cursor = conn.execute("INSERT INTO products (name, unit) VALUES (?, ?)", (name, unit))
-    new_id = cursor.lastrowid
+    cur.execute("INSERT INTO products (name, unit) VALUES (%s, %s) RETURNING id", (name, unit))
+    new_id = cur.fetchone()['id']
     
-    # Если указан начальный остаток — создаём движение
     if initial_qty > 0:
-        conn.execute(
-            "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+        cur.execute(
+            "INSERT INTO stock_moves (product_id, quantity, \"user\", comment) VALUES (%s, %s, %s, %s)",
             (new_id, initial_qty, user, 'Начальный остаток')
         )
     
     conn.commit()
+    cur.close()
     conn.close()
     
     print(f"✅ Добавлен товар: ID={new_id}, '{name}', {initial_qty} {unit}")
@@ -390,7 +417,6 @@ def admin_add_product():
 @login_required
 @role_required(['admin'])
 def admin_update_product(product_id):
-    """Редактировать название и единицу измерения товара"""
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
@@ -399,29 +425,26 @@ def admin_update_product(product_id):
         return jsonify({'error': 'Укажите наименование товара'}), 400
     
     conn = get_db()
+    cur = conn.cursor()
     
-    product = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+    cur.execute("SELECT id FROM products WHERE id = %s", (product_id,))
+    product = cur.fetchone()
     if not product:
+        cur.close()
         conn.close()
         return jsonify({'error': 'Товар не найден'}), 404
     
-    # Проверяем, что имя не занято другим товаром
-    duplicate = conn.execute(
-        "SELECT id FROM products WHERE name = ? AND id != ?",
-        (name, product_id)
-    ).fetchone()
+    cur.execute("SELECT id FROM products WHERE name = %s AND id != %s", (name, product_id))
+    duplicate = cur.fetchone()
     if duplicate:
+        cur.close()
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    conn.execute(
-        "UPDATE products SET name = ?, unit = ? WHERE id = ?",
-        (name, unit, product_id)
-    )
+    cur.execute("UPDATE products SET name = %s, unit = %s WHERE id = %s", (name, unit, product_id))
     conn.commit()
+    cur.close()
     conn.close()
-    
-    print(f"✏️ Обновлён товар #{product_id}: '{name}', {unit}")
     
     return jsonify({'status': 'OK', 'message': f'Товар обновлён'})
 
@@ -430,27 +453,24 @@ def admin_update_product(product_id):
 @login_required
 @role_required(['admin'])
 def admin_delete_product(product_id):
-    """Удалить товар. Разрешено только если нет отгрузок/резервов/пополнений."""
     conn = get_db()
+    cur = conn.cursor()
     
-    product = conn.execute("SELECT id, name FROM products WHERE id = ?", (product_id,)).fetchone()
+    cur.execute("SELECT id, name FROM products WHERE id = %s", (product_id,))
+    product = cur.fetchone()
     if not product:
+        cur.close()
         conn.close()
         return jsonify({'error': 'Товар не найден'}), 404
     
-    # Проверяем движения
-    moves = conn.execute(
-        "SELECT COUNT(*) as cnt FROM stock_moves WHERE product_id = ?",
-        (product_id,)
-    ).fetchone()
+    cur.execute("SELECT COUNT(*) as cnt FROM stock_moves WHERE product_id = %s", (product_id,))
+    moves = cur.fetchone()
     
-    # Проверяем активные резервы
-    reserves = conn.execute(
-        "SELECT COUNT(*) as cnt FROM reserves WHERE product_id = ? AND is_active = 1",
-        (product_id,)
-    ).fetchone()
+    cur.execute("SELECT COUNT(*) as cnt FROM reserves WHERE product_id = %s AND is_active = 1", (product_id,))
+    reserves = cur.fetchone()
     
     if moves['cnt'] > 1 or reserves['cnt'] > 0:
+        cur.close()
         conn.close()
         reasons = []
         if moves['cnt'] > 1:
@@ -458,17 +478,15 @@ def admin_delete_product(product_id):
         if reserves['cnt'] > 0:
             reasons.append(f'активных резервов: {reserves["cnt"]}')
         return jsonify({
-            'error': f'Нельзя удалить товар "{product["name"]}" — есть история: {", ".join(reasons)}. Сначала снимите резервы и убедитесь, что остаток = 0.'
+            'error': f'Нельзя удалить товар "{product["name"]}" — есть история: {", ".join(reasons)}.'
         }), 400
     
-    # Удаляем движения товара (если только 1 — начальный остаток)
-    conn.execute("DELETE FROM stock_moves WHERE product_id = ?", (product_id,))
-    conn.execute("DELETE FROM reserves WHERE product_id = ?", (product_id,))
-    conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    cur.execute("DELETE FROM stock_moves WHERE product_id = %s", (product_id,))
+    cur.execute("DELETE FROM reserves WHERE product_id = %s", (product_id,))
+    cur.execute("DELETE FROM products WHERE id = %s", (product_id,))
     conn.commit()
+    cur.close()
     conn.close()
-    
-    print(f"🗑️ Удалён товар #{product_id}: '{product['name']}'")
     
     return jsonify({'status': 'OK', 'message': f'Товар "{product["name"]}" удалён'})
 
@@ -494,27 +512,31 @@ def reserve_product():
         return jsonify({'error': 'Некорректные данные'}), 400
 
     conn = get_db()
+    cur = conn.cursor()
     
-    check = conn.execute('''
+    cur.execute('''
         SELECT 
-            COALESCE((SELECT SUM(quantity) FROM stock_moves WHERE product_id = ?), 0) as balance,
-            COALESCE((SELECT SUM(quantity) FROM reserves WHERE product_id = ? AND is_active = 1), 0) as reserved
-    ''', (prod_id, prod_id)).fetchone()
+            COALESCE((SELECT SUM(quantity) FROM stock_moves WHERE product_id = %s), 0) as balance,
+            COALESCE((SELECT SUM(quantity) FROM reserves WHERE product_id = %s AND is_active = 1), 0) as reserved
+    ''', (prod_id, prod_id))
+    check = cur.fetchone()
     
     available = check['balance'] - check['reserved']
     
     if available < qty:
+        cur.close()
         conn.close()
         return jsonify({
-            'error': f'Недостаточно товара для резерва! Доступно: {available} (остаток: {check["balance"]}, уже в резерве: {check["reserved"]})'
+            'error': f'Недостаточно товара для резерва! Доступно: {available}'
         }), 400
 
-    cursor = conn.execute(
-        "INSERT INTO reserves (product_id, quantity, user, comment, is_active) VALUES (?, ?, ?, ?, 1)",
+    cur.execute(
+        "INSERT INTO reserves (product_id, quantity, \"user\", comment, is_active) VALUES (%s, %s, %s, %s, 1) RETURNING id",
         (prod_id, qty, username, comment)
     )
-    new_id = cursor.lastrowid
+    new_id = cur.fetchone()['id']
     conn.commit()
+    cur.close()
     conn.close()
     
     return jsonify({
@@ -540,24 +562,28 @@ def unreserve_product():
         return jsonify({'error': 'Не указан резерв или товар'}), 400
 
     conn = get_db()
+    cur = conn.cursor()
 
     if reserve_id:
-        reserve = conn.execute(
-            "SELECT id, product_id, quantity, comment FROM reserves WHERE id = ? AND is_active = 1",
+        cur.execute(
+            "SELECT id, product_id, quantity, comment FROM reserves WHERE id = %s AND is_active = 1",
             (reserve_id,)
-        ).fetchone()
+        )
+        reserve = cur.fetchone()
 
         if not reserve:
+            cur.close()
             conn.close()
             return jsonify({'error': 'Резерв не найден или уже снят'}), 400
 
-        conn.execute("UPDATE reserves SET is_active = 0 WHERE id = ?", (reserve_id,))
-        conn.execute(
-            "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+        cur.execute("UPDATE reserves SET is_active = 0 WHERE id = %s", (reserve_id,))
+        cur.execute(
+            "INSERT INTO stock_moves (product_id, quantity, \"user\", comment) VALUES (%s, %s, %s, %s)",
             (reserve['product_id'], 0, username, 
              f'Снят резерв #{reserve_id} ({reserve["quantity"]} шт, пометка: {reserve["comment"]})')
         )
         conn.commit()
+        cur.close()
         conn.close()
         return jsonify({
             'status': 'OK', 
@@ -565,27 +591,30 @@ def unreserve_product():
         })
 
     else:
-        reserves = conn.execute(
-            "SELECT id, quantity FROM reserves WHERE product_id = ? AND is_active = 1",
+        cur.execute(
+            "SELECT id, quantity FROM reserves WHERE product_id = %s AND is_active = 1",
             (prod_id,)
-        ).fetchall()
+        )
+        reserves = cur.fetchall()
 
         if not reserves:
+            cur.close()
             conn.close()
             return jsonify({'error': 'Нет активных резервов для этого товара'}), 400
 
         total = sum(r['quantity'] for r in reserves)
         count = len(reserves)
 
-        conn.execute(
-            "UPDATE reserves SET is_active = 0 WHERE product_id = ? AND is_active = 1",
+        cur.execute(
+            "UPDATE reserves SET is_active = 0 WHERE product_id = %s AND is_active = 1",
             (prod_id,)
         )
-        conn.execute(
-            "INSERT INTO stock_moves (product_id, quantity, user, comment) VALUES (?, ?, ?, ?)",
+        cur.execute(
+            "INSERT INTO stock_moves (product_id, quantity, \"user\", comment) VALUES (%s, %s, %s, %s)",
             (prod_id, 0, username, f'Сняты все резервы ({count} шт): {total} ед.')
         )
         conn.commit()
+        cur.close()
         conn.close()
         return jsonify({
             'status': 'OK', 
@@ -597,7 +626,8 @@ def unreserve_product():
 @login_required
 def get_reserves():
     conn = get_db()
-    reserves = conn.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         SELECT 
             r.id,
             r.product_id,
@@ -606,12 +636,14 @@ def get_reserves():
             r.quantity,
             r.user,
             r.comment,
-            datetime(r.created_at, '+5 hours') as created_at
+            to_char(r.created_at + INTERVAL '5 hours', 'YYYY-MM-DD HH24:MI:SS') as created_at
         FROM reserves r
         JOIN products p ON r.product_id = p.id
         WHERE r.is_active = 1
         ORDER BY p.name, r.created_at DESC
-    ''').fetchall()
+    ''')
+    reserves = cur.fetchall()
+    cur.close()
     conn.close()
     return jsonify([dict(row) for row in reserves])
 
@@ -627,7 +659,8 @@ def export_excel():
         return render_template('access_denied.html'), 403
     
     conn = get_db()
-    data = conn.execute('''
+    cur = conn.cursor()
+    cur.execute('''
         SELECT 
             p.id,
             p.name,
@@ -640,9 +673,11 @@ def export_excel():
             p.unit
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
-        GROUP BY p.id
+        GROUP BY p.id, p.name, p.unit
         ORDER BY p.id
-    ''').fetchall()
+    ''')
+    data = cur.fetchall()
+    cur.close()
     conn.close()
     
     wb = Workbook()
@@ -755,4 +790,8 @@ def export_excel():
 # ============================================================
 
 if __name__ == '__main__':
+    print("=" * 60)
+    print("🚀 Запуск приложения...")
+    print(f"📦 База данных: {DATABASE_URL[:50] if DATABASE_URL else 'НЕ ЗАДАНА!'}...")
+    print("=" * 60)
     app.run(debug=True, host='0.0.0.0', port=5000)

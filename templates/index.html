@@ -281,11 +281,11 @@
         <div class="header-actions">
             <span class="user-badge">👤 {{ username }}</span>
             
-            <a href="/reserves" class="btn-nav btn-reserves" target="_blank">📌 Резервы</a>
+            <a href="/reserves" class="btn-nav btn-reserves">📌 Резервы</a>
             
             {% if session.get('role') == 'admin' %}
-                <a href="/admin/products" class="btn-nav btn-admin" target="_blank">⚙️ Товары</a>
-                <a href="/history" class="btn-nav btn-history" target="_blank">📜 Журнал</a>
+                <a href="/admin/products" class="btn-nav btn-admin">⚙️ Товары</a>
+                <a href="/history" class="btn-nav btn-history">📜 Журнал</a>
                 <a href="/export_excel" class="btn-nav btn-excel" target="_blank">📊 Excel</a>
             {% endif %}
             
