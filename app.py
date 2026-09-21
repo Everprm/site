@@ -244,8 +244,8 @@ def balances():
             ), 0) as reserved
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
-        GROUP BY p.id, p.name, p.unit
-        ORDER BY p.id
+        GROUP BY p.id, p.name, p.unit, p.sort_order
+        ORDER BY p.sort_order, p.id
     ''')
     data = cur.fetchall()
     cur.close()
@@ -352,6 +352,7 @@ def admin_get_products():
             p.id, 
             p.name, 
             p.unit, 
+            p.sort_order,
             COALESCE(SUM(sm.quantity), 0) as balance,
             COALESCE((
                 SELECT SUM(r.quantity) 
@@ -361,8 +362,8 @@ def admin_get_products():
             (SELECT COUNT(*) FROM stock_moves WHERE product_id = p.id) as moves_count
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
-        GROUP BY p.id, p.name, p.unit
-        ORDER BY p.id
+        GROUP BY p.id, p.name, p.unit, p.sort_order
+        ORDER BY p.sort_order, p.id
     ''')
     data = cur.fetchall()
     cur.close()
@@ -407,7 +408,14 @@ def admin_add_product():
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    cur.execute("INSERT INTO products (name, unit) VALUES (%s, %s) RETURNING id", (name, unit))
+    # Новый товар получает sort_order = максимальный + 1, чтобы встать в конец
+    cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
+    new_sort_order = cur.fetchone()['new_order']
+    
+    cur.execute(
+        "INSERT INTO products (name, unit, sort_order) VALUES (%s, %s, %s) RETURNING id",
+        (name, unit, new_sort_order)
+    )
     new_id = cur.fetchone()['id']
     
     if initial_qty > 0:
@@ -420,7 +428,7 @@ def admin_add_product():
     cur.close()
     conn.close()
     
-    print(f"✅ Добавлен товар: ID={new_id}, '{name}', {initial_qty} {unit}")
+    print(f"✅ Добавлен товар: ID={new_id}, '{name}', {initial_qty} {unit}, sort_order={new_sort_order}")
     
     return jsonify({
         'status': 'OK',
@@ -436,6 +444,7 @@ def admin_update_product(product_id):
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
+    sort_order = data.get('sort_order')  # опционально
     
     if not name:
         return jsonify({'error': 'Укажите наименование товара'}), 400
@@ -457,7 +466,25 @@ def admin_update_product(product_id):
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    cur.execute("UPDATE products SET name = %s, unit = %s WHERE id = %s", (name, unit, product_id))
+    # Если передан sort_order — обновляем, иначе оставляем как было
+    if sort_order is not None:
+        try:
+            sort_order = int(sort_order)
+            cur.execute(
+                "UPDATE products SET name = %s, unit = %s, sort_order = %s WHERE id = %s",
+                (name, unit, sort_order, product_id)
+            )
+        except (ValueError, TypeError):
+            cur.execute(
+                "UPDATE products SET name = %s, unit = %s WHERE id = %s",
+                (name, unit, product_id)
+            )
+    else:
+        cur.execute(
+            "UPDATE products SET name = %s, unit = %s WHERE id = %s",
+            (name, unit, product_id)
+        )
+    
     conn.commit()
     cur.close()
     conn.close()
@@ -656,7 +683,7 @@ def get_reserves():
         FROM reserves r
         JOIN products p ON r.product_id = p.id
         WHERE r.is_active = 1
-        ORDER BY p.name, r.created_at DESC
+        ORDER BY p.sort_order, p.id, r.created_at DESC
     ''')
     reserves = cur.fetchall()
     cur.close()
@@ -689,8 +716,8 @@ def export_excel():
             p.unit
         FROM products p
         LEFT JOIN stock_moves sm ON p.id = sm.product_id
-        GROUP BY p.id, p.name, p.unit
-        ORDER BY p.id
+        GROUP BY p.id, p.name, p.unit, p.sort_order
+        ORDER BY p.sort_order, p.id
     ''')
     data = cur.fetchall()
     cur.close()
