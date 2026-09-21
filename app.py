@@ -14,11 +14,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'supersecretkey123!@#$%'
+
+# ============================================================
+# БЕЗОПАСНОСТЬ: секретный ключ из переменной окружения
+# ============================================================
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError(
+        "❌ Переменная окружения SECRET_KEY не задана!\n"
+        "   Добавьте её в файл .env (локально) или в переменные окружения App Platform (на хостинге).\n"
+        "   Сгенерировать можно командой: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+app.secret_key = SECRET_KEY
 app.permanent_session_lifetime = timedelta(hours=8)
 
-# Строка подключения к PostgreSQL
+# ============================================================
+# ПОДКЛЮЧЕНИЕ К БД
+# ============================================================
 DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    raise ValueError(
+        "❌ Переменная окружения DATABASE_URL не задана!\n"
+        "   Добавьте её в файл .env (локально) или в переменные окружения App Platform (на хостинге)."
+    )
 
 
 # ============================================================
@@ -36,8 +54,6 @@ def get_perm_time():
 
 def get_db():
     """Подключение к PostgreSQL"""
-    if not DATABASE_URL:
-        raise ValueError("Переменная окружения DATABASE_URL не задана!")
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
@@ -792,6 +808,7 @@ def export_excel():
 if __name__ == '__main__':
     print("=" * 60)
     print("🚀 Запуск приложения...")
-    print(f"📦 База данных: {DATABASE_URL[:50] if DATABASE_URL else 'НЕ ЗАДАНА!'}...")
+    print(f"📦 База данных: {DATABASE_URL[:50]}...")
+    print(f"🔑 SECRET_KEY: {'*' * 20} (скрыт)")
     print("=" * 60)
     app.run(debug=True, host='0.0.0.0', port=5000)
