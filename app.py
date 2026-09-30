@@ -88,6 +88,7 @@ def role_required(allowed_roles):
 
 CAN_SHIP_USERS = ['Павел', 'Валерий']
 CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий']
+CAN_RECEIVE_USERS = ['Павел', 'Валерий']
 
 
 def can_ship(username):
@@ -96,6 +97,10 @@ def can_ship(username):
 
 def can_reserve(username):
     return username in CAN_RESERVE_USERS
+
+
+def can_receive(username):
+    return username in CAN_RECEIVE_USERS
 
 
 # ============================================================
@@ -202,11 +207,14 @@ def api_login():
 @login_required
 def current_user():
     username = session.get('username')
+    role = session.get('role')
+    
     return jsonify({
         'username': username,
-        'role': session.get('role'),
+        'role': role,
         'can_ship': can_ship(username),
-        'can_reserve': can_reserve(username)
+        'can_reserve': can_reserve(username),
+        'can_receive': can_receive(username)
     })
 
 
@@ -314,12 +322,16 @@ def ship():
 
 @app.route('/api/receive', methods=['POST'])
 @login_required
-@role_required(['manager', 'admin'])
 def receive():
+    """Пополнение склада. Разрешено: Павел, Валерий."""
+    username = session.get('username')
+    
+    if not can_receive(username):
+        return jsonify({'error': f'❌ У пользователя {username} нет прав на пополнение склада'}), 403
+    
     data = request.get_json()
     prod_id = data.get('product_id')
     qty = data.get('quantity')
-    user = session.get('username', 'Неизвестный')
     comment = data.get('comment', 'Пополнение')
 
     if not prod_id or not qty or qty <= 0:
@@ -329,7 +341,7 @@ def receive():
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO stock_moves (product_id, quantity, \"user\", comment) VALUES (%s, %s, %s, %s)",
-        (prod_id, abs(qty), user, comment)
+        (prod_id, abs(qty), username, comment)
     )
     conn.commit()
     cur.close()
@@ -408,7 +420,6 @@ def admin_add_product():
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    # Новый товар получает sort_order = максимальный + 1, чтобы встать в конец
     cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
     new_sort_order = cur.fetchone()['new_order']
     
@@ -444,7 +455,7 @@ def admin_update_product(product_id):
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
-    sort_order = data.get('sort_order')  # опционально
+    sort_order = data.get('sort_order')
     
     if not name:
         return jsonify({'error': 'Укажите наименование товара'}), 400
@@ -466,7 +477,6 @@ def admin_update_product(product_id):
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    # Если передан sort_order — обновляем, иначе оставляем как было
     if sort_order is not None:
         try:
             sort_order = int(sort_order)
