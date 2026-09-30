@@ -198,6 +198,31 @@
         .btn-receive { background: #2e7d32; color: white; }
         .btn-receive:hover { background: #1b5e20; transform: translateY(-1px); }
         
+        /* ==== Быстрые кнопки для пополнения ==== */
+        .receive-cell {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-quick {
+            padding: 5px 10px;
+            border: 1px solid #2e7d32;
+            background: #fff;
+            color: #2e7d32;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-quick:hover {
+            background: #2e7d32;
+            color: white;
+            transform: translateY(-1px);
+        }
+        
         .comment-wrapper {
             display: flex;
             align-items: center;
@@ -271,6 +296,8 @@
             .actions-cell { min-width: 240px; }
             .qty-input { width: 50px; }
             .btn-action { padding: 6px 10px; font-size: 12px; }
+            .receive-cell { gap: 4px; }
+            .btn-quick { padding: 4px 8px; font-size: 11px; }
         }
     </style>
 </head>
@@ -331,7 +358,7 @@
                     <th style="width:50px;">ID</th>
                     <th>Наименование</th>
                     <th style="width:120px;">Текущий остаток</th>
-                    <th style="width:150px;">Сколько добавить?</th>
+                    <th style="width:280px;">Сколько добавить?</th>
                     <th style="width:160px;">Действие</th>
                 </tr>
             </thead>
@@ -354,6 +381,7 @@
     let currentUsername = '';
     let canShip = false;
     let canReserve = false;
+    let canReceive = false;
 
     function getPermTime() {
         const now = new Date();
@@ -376,19 +404,21 @@
             currentUsername = data.username;
             canShip = data.can_ship;
             canReserve = data.can_reserve;
+            canReceive = data.can_receive;
             
             console.log('👤 Пользователь:', currentUsername);
             console.log('   role:', currentUserRole);
             console.log('   can_ship:', canShip);
             console.log('   can_reserve:', canReserve);
+            console.log('   can_receive:', canReceive);
             
             const receiveTab = document.getElementById('receiveTabBtn');
-            if (currentUserRole !== 'admin') {
-                receiveTab.classList.add('hidden');
-                console.log('❌ Вкладка "Пополнение" скрыта (role != admin)');
-            } else {
+            if (canReceive) {
                 receiveTab.classList.remove('hidden');
                 console.log('✅ Вкладка "Пополнение" показана');
+            } else {
+                receiveTab.classList.add('hidden');
+                console.log('❌ Вкладка "Пополнение" скрыта (can_receive = false)');
             }
         } catch (e) {
             console.error('Ошибка получения пользователя:', e);
@@ -425,6 +455,7 @@
                 const userCanReserve = canReserve && !isFullyBlocked;
                 const qtyDisabled = !userCanShip && !userCanReserve;
                 
+                // ============ СТРОКА ОТГРУЗКИ ============
                 const shipRow = document.createElement('tr');
                 if (isFullyBlocked) {
                     shipRow.className = 'fully-reserved';
@@ -495,17 +526,26 @@
                 `;
                 shipTableBody.appendChild(shipRow);
 
+                // ============ СТРОКА ПОПОЛНЕНИЯ ============
                 const receiveRow = document.createElement('tr');
                 receiveRow.innerHTML = `
                     <td class="id-col">${item.id}</td>
                     <td class="name-col">${item.name}</td>
                     <td class="balance">${item.balance} ${item.unit || ''}</td>
                     <td style="vertical-align: middle;">
-                        <input type="number" 
-                               class="qty-input"
-                               id="rec_qty_${item.id}" 
-                               value="10" 
-                               min="1">
+                        <div class="receive-cell">
+                            <input type="number" 
+                                   class="qty-input"
+                                   id="rec_qty_${item.id}" 
+                                   value="0" 
+                                   min="0"
+                                   placeholder="0"
+                                   onfocus="if(this.value === '0') this.select()"
+                                   title="Введите количество">
+                            <button class="btn-quick" onclick="quickAdd(${item.id}, 10)">+10</button>
+                            <button class="btn-quick" onclick="quickAdd(${item.id}, 50)">+50</button>
+                            <button class="btn-quick" onclick="quickAdd(${item.id}, 100)">+100</button>
+                        </div>
                     </td>
                     <td style="vertical-align: middle;">
                         <button class="btn-action btn-receive" onclick="receiveProduct(${item.id}, this)">➕ Пополнить</button>
@@ -644,7 +684,9 @@
         const qty = parseInt(input.value);
 
         if (!qty || qty < 1) { 
-            showMessage('⚠️ Введите число больше 0', 'error'); 
+            showMessage('⚠️ Введите количество больше 0', 'error'); 
+            input.focus();
+            input.select();
             return; 
         }
 
@@ -676,6 +718,19 @@
             btn.disabled = false;
             btn.textContent = originalText;
         }
+    }
+
+    // ============================================================
+    // БЫСТРОЕ ДОБАВЛЕНИЕ КОЛИЧЕСТВА (+10, +50, +100)
+    // ============================================================
+    function quickAdd(id, amount) {
+        const input = document.getElementById(`rec_qty_${id}`);
+        if (!input) return;
+        
+        const currentValue = parseInt(input.value) || 0;
+        input.value = currentValue + amount;
+        input.focus();
+        input.select();
     }
 
     function showMessage(text, type) {
