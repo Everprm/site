@@ -56,7 +56,7 @@
         }
         .form-row {
             display: grid;
-            grid-template-columns: 2fr 1fr 1fr auto;
+            grid-template-columns: 2fr 1fr 1fr 1.5fr auto;
             gap: 10px;
             align-items: end;
         }
@@ -79,6 +79,12 @@
             border-color: #4a7fb5;
             outline: none;
             box-shadow: 0 0 0 3px rgba(74,127,181,0.15);
+        }
+        .form-group .hint {
+            font-size: 11px;
+            color: #888;
+            margin-top: 3px;
+            font-style: italic;
         }
         .btn-add {
             padding: 10px 24px;
@@ -121,6 +127,7 @@
         .reserved { color: #f57c00; font-weight: 700; text-align: center; }
         .available { color: #2e7d32; font-weight: 700; text-align: center; }
         .moves { color: #777; font-size: 12px; text-align: center; }
+        .sort-col { color: #4a7fb5; font-weight: 600; text-align: center; font-size: 13px; }
         
         .btn-edit {
             background: #4a7fb5;
@@ -147,7 +154,7 @@
         }
         .btn-delete:hover { background: #d32f2f; color: white; }
         
-        /* Модальное окно редактирования */
+        /* Модальное окно */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -199,7 +206,6 @@
         }
         .btn-save:hover { background: #1b5e20; }
         
-        /* Сообщения */
         #message { 
             margin: 0 0 20px 0; 
             padding: 12px 20px; 
@@ -255,6 +261,15 @@
             font-size: 12px;
             color: #666;
         }
+        
+        @media (max-width: 900px) {
+            .form-row {
+                grid-template-columns: 1fr 1fr;
+            }
+            .form-row .btn-add {
+                grid-column: span 2;
+            }
+        }
     </style>
 </head>
 <body>
@@ -301,6 +316,11 @@
                 <input type="number" id="newQty" value="0" min="0" placeholder="0">
             </div>
             <div class="form-group">
+                <label>Поставить после ID</label>
+                <input type="number" id="newAfterId" placeholder="Например: 309">
+                <div class="hint">Пусто = в конец списка</div>
+            </div>
+            <div class="form-group">
                 <button class="btn-add" id="btnAdd" onclick="addProduct()">➕ Добавить</button>
             </div>
         </div>
@@ -317,12 +337,13 @@
                 <th style="width:90px;">Остаток</th>
                 <th style="width:90px;">Резерв</th>
                 <th style="width:100px;">Доступно</th>
+                <th style="width:80px;">Порядок</th>
                 <th style="width:80px;">Операций</th>
                 <th style="width:180px;">Действия</th>
             </tr>
         </thead>
         <tbody id="productsTable">
-            <tr><td colspan="8" style="text-align:center; padding:30px; color:#999;">Загрузка...</td></tr>
+            <tr><td colspan="9" style="text-align:center; padding:30px; color:#999;">Загрузка...</td></tr>
         </tbody>
     </table>
 </div>
@@ -342,6 +363,11 @@
         <div class="form-group" style="margin-bottom: 15px;">
             <label>Единица измерения</label>
             <input type="text" id="editUnit">
+        </div>
+        <div class="form-group" style="margin-bottom: 15px;">
+            <label>Порядок (sort_order)</label>
+            <input type="number" id="editSortOrder" step="0.01" placeholder="Например: 309.5">
+            <div class="hint">Меньше число = выше в списке. Дробные значения (например 309.5) помогут вставить между позициями.</div>
         </div>
         <div class="modal-actions">
             <button class="btn-cancel" onclick="closeEditModal()">Отмена</button>
@@ -388,7 +414,7 @@
 
     function renderProducts(products) {
         if (products.length === 0) {
-            productsTable.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:#999;">📭 Нет товаров</td></tr>';
+            productsTable.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:30px; color:#999;">📭 Нет товаров</td></tr>';
             return;
         }
         
@@ -402,6 +428,10 @@
                 ? 'Удалить товар' 
                 : `Нельзя удалить (операций: ${p.moves_count}, резервов: ${p.reserved})`;
             
+            const sortOrderDisplay = p.sort_order !== null && p.sort_order !== undefined 
+                ? parseFloat(p.sort_order).toFixed(2).replace(/\.00$/, '') 
+                : '—';
+            
             tr.innerHTML = `
                 <td class="id-col">${p.id}</td>
                 <td class="name-col">${p.name}</td>
@@ -409,6 +439,7 @@
                 <td class="balance">${p.balance}</td>
                 <td class="reserved">${p.reserved > 0 ? p.reserved : '—'}</td>
                 <td class="available">${p.available}</td>
+                <td class="sort-col">${sortOrderDisplay}</td>
                 <td class="moves">${p.moves_count}</td>
                 <td>
                     <button class="btn-edit" onclick="openEditModal(${p.id})">✏️ Изменить</button>
@@ -426,6 +457,8 @@
         const name = document.getElementById('newName').value.trim();
         const unit = document.getElementById('newUnit').value.trim() || 'шт';
         const initial_qty = parseInt(document.getElementById('newQty').value) || 0;
+        const after_id_raw = document.getElementById('newAfterId').value.trim();
+        const after_id = after_id_raw ? parseInt(after_id_raw) : null;
         
         if (!name) {
             showMessage('⚠️ Введите наименование товара', 'error');
@@ -441,7 +474,12 @@
             const resp = await fetch('/api/admin/products', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, unit, initial_qty })
+                body: JSON.stringify({ 
+                    name, 
+                    unit, 
+                    initial_qty, 
+                    after_id 
+                })
             });
             const result = await resp.json();
             
@@ -450,6 +488,7 @@
                 document.getElementById('newName').value = '';
                 document.getElementById('newQty').value = '0';
                 document.getElementById('newUnit').value = 'шт';
+                document.getElementById('newAfterId').value = '';
                 loadProducts();
             } else {
                 showMessage('❌ ' + result.error, 'error');
@@ -472,6 +511,9 @@
         document.getElementById('editId').value = product.id;
         document.getElementById('editName').value = product.name;
         document.getElementById('editUnit').value = product.unit || 'шт';
+        document.getElementById('editSortOrder').value = product.sort_order !== null && product.sort_order !== undefined 
+            ? parseFloat(product.sort_order) 
+            : '';
         document.getElementById('editModal').classList.add('show');
         document.getElementById('editName').focus();
     }
@@ -484,6 +526,7 @@
     async function saveEdit() {
         const name = document.getElementById('editName').value.trim();
         const unit = document.getElementById('editUnit').value.trim() || 'шт';
+        const sort_order = document.getElementById('editSortOrder').value.trim();
         
         if (!name) {
             alert('Введите наименование');
@@ -494,7 +537,11 @@
             const resp = await fetch(`/api/admin/products/${editingId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, unit })
+                body: JSON.stringify({ 
+                    name, 
+                    unit,
+                    sort_order: sort_order !== '' ? sort_order : null
+                })
             });
             const result = await resp.json();
             

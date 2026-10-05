@@ -20,7 +20,7 @@
             border-radius: 16px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
             width: 100%;
-            max-width: 420px;
+            max-width: 480px;
         }
         .login-container h1 {
             color: #1a3c5e;
@@ -96,7 +96,7 @@
         }
         .user-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 6px;
         }
         .user-item {
@@ -139,6 +139,13 @@
             color: #bbb;
             font-size: 12px;
         }
+        
+        /* Адаптив для мобильных: 2 колонки */
+        @media (max-width: 480px) {
+            .user-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -174,6 +181,9 @@
             </div>
             <div class="user-item" onclick="fillLogin('Виталий')" title="Нажмите, чтобы подставить логин">
                 <span class="name">Виталий</span> <span class="role-badge worker">клад.</span>
+            </div>
+            <div class="user-item" onclick="fillLogin('Андрей')" title="Нажмите, чтобы подставить логин">
+                <span class="name">Андрей</span> <span class="role-badge admin">админ</span>
             </div>
         </div>
     </div>

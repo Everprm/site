@@ -86,9 +86,14 @@ def role_required(allowed_roles):
 # ПРАВА ПОЛЬЗОВАТЕЛЕЙ
 # ============================================================
 
-CAN_SHIP_USERS = ['Павел', 'Валерий']
-CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий']
-CAN_RECEIVE_USERS = ['Павел', 'Валерий']
+# Кто может отгружать
+CAN_SHIP_USERS = ['Павел', 'Валерий', 'Андрей']
+
+# Кто может резервировать и снимать резерв
+CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий', 'Андрей']
+
+# Кто может пополнять склад
+CAN_RECEIVE_USERS = ['Павел', 'Валерий', 'Андрей']
 
 
 def can_ship(username):
@@ -123,7 +128,10 @@ def index():
 @app.route('/history')
 @login_required
 def history():
-    if session.get('role') != 'admin':
+    """Журнал движений. Доступен всем авторизованным пользователям."""
+    username = session.get('username')
+    
+    if not username:
         return render_template('access_denied.html'), 403
     
     conn = get_db()
@@ -214,7 +222,8 @@ def current_user():
         'role': role,
         'can_ship': can_ship(username),
         'can_reserve': can_reserve(username),
-        'can_receive': can_receive(username)
+        'can_receive': can_receive(username),
+        'can_view_history': True
     })
 
 
@@ -323,7 +332,7 @@ def ship():
 @app.route('/api/receive', methods=['POST'])
 @login_required
 def receive():
-    """Пополнение склада. Разрешено: Павел, Валерий."""
+    """Пополнение склада. Разрешено: Павел, Валерий, Андрей."""
     username = session.get('username')
     
     if not can_receive(username):
@@ -394,10 +403,16 @@ def admin_get_products():
 @login_required
 @role_required(['admin'])
 def admin_add_product():
+    """
+    Добавить товар.
+    Если указан after_id — товар встанет ПОСЛЕ этого товара.
+    Иначе — в конец списка.
+    """
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
     initial_qty = data.get('initial_qty', 0)
+    after_id = data.get('after_id')
     user = session.get('username', 'admin')
     
     if not name:
@@ -413,6 +428,7 @@ def admin_add_product():
     conn = get_db()
     cur = conn.cursor()
     
+    # Проверка на дубликат имени
     cur.execute("SELECT id FROM products WHERE name = %s", (name,))
     existing = cur.fetchone()
     if existing:
@@ -420,9 +436,40 @@ def admin_add_product():
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
-    new_sort_order = cur.fetchone()['new_order']
+    # Определяем sort_order для нового товара
+    new_sort_order = None
     
+    if after_id:
+        try:
+            after_id = int(after_id)
+            cur.execute("SELECT sort_order FROM products WHERE id = %s", (after_id,))
+            after_product = cur.fetchone()
+            
+            if after_product:
+                after_order = float(after_product['sort_order']) if after_product['sort_order'] is not None else 0
+                
+                cur.execute(
+                    "SELECT MIN(sort_order) as next_order FROM products WHERE sort_order > %s",
+                    (after_order,)
+                )
+                next_product = cur.fetchone()
+                next_order = float(next_product['next_order']) if next_product['next_order'] is not None else None
+                
+                if next_order is not None:
+                    new_sort_order = (after_order + next_order) / 2
+                else:
+                    new_sort_order = after_order + 1
+            else:
+                cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
+                new_sort_order = float(cur.fetchone()['new_order'])
+        except (ValueError, TypeError):
+            cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
+            new_sort_order = float(cur.fetchone()['new_order'])
+    else:
+        cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
+        new_sort_order = float(cur.fetchone()['new_order'])
+    
+    # Вставляем товар
     cur.execute(
         "INSERT INTO products (name, unit, sort_order) VALUES (%s, %s, %s) RETURNING id",
         (name, unit, new_sort_order)
@@ -439,12 +486,13 @@ def admin_add_product():
     cur.close()
     conn.close()
     
-    print(f"✅ Добавлен товар: ID={new_id}, '{name}', {initial_qty} {unit}, sort_order={new_sort_order}")
+    print(f"✅ Добавлен товар: ID={new_id}, '{name}', sort_order={new_sort_order}")
     
     return jsonify({
         'status': 'OK',
         'message': f'Товар "{name}" добавлен (остаток: {initial_qty} {unit})',
-        'product_id': new_id
+        'product_id': new_id,
+        'sort_order': new_sort_order
     })
 
 
@@ -477,9 +525,9 @@ def admin_update_product(product_id):
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    if sort_order is not None:
+    if sort_order is not None and sort_order != '':
         try:
-            sort_order = int(sort_order)
+            sort_order = float(sort_order)
             cur.execute(
                 "UPDATE products SET name = %s, unit = %s, sort_order = %s WHERE id = %s",
                 (name, unit, sort_order, product_id)

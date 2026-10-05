@@ -310,9 +310,12 @@
             
             <a href="/reserves" class="btn-nav btn-reserves">📌 Резервы</a>
             
+            <!-- Журнал — для всех пользователей -->
+            <a href="/history" class="btn-nav btn-history">📜 Журнал</a>
+            
+            <!-- Товары и Excel — только для админов (Павел, Андрей) -->
             {% if session.get('role') == 'admin' %}
                 <a href="/admin/products" class="btn-nav btn-admin">⚙️ Товары</a>
-                <a href="/history" class="btn-nav btn-history">📜 Журнал</a>
                 <a href="/export_excel" class="btn-nav btn-excel" target="_blank">📊 Excel</a>
             {% endif %}
             
@@ -382,6 +385,7 @@
     let canShip = false;
     let canReserve = false;
     let canReceive = false;
+    let currentFilter = '';
 
     function getPermTime() {
         const now = new Date();
@@ -441,6 +445,9 @@
 
     async function loadData() {
         try {
+            // Сохраняем текущий фильтр
+            currentFilter = searchInput.value.toLowerCase().trim();
+            
             const resp = await fetch('/api/balances');
             const items = await resp.json();
             
@@ -554,11 +561,29 @@
                 receiveTableBody.appendChild(receiveRow);
             });
             
+            // Восстанавливаем фильтр
+            searchInput.value = currentFilter;
+            applyFilter();
+            
             document.getElementById('updateTime').textContent = `🔄 Обновлено: ${formatPermTime()} (Пермь)`;
         } catch (e) {
             showMessage('❌ Ошибка загрузки данных', 'error');
             console.error(e);
         }
+    }
+
+    // ============================================================
+    // ФИЛЬТРАЦИЯ (сохраняется при обновлении данных)
+    // ============================================================
+    function applyFilter() {
+        document.querySelectorAll('#shipTable tr, #receiveTable tr').forEach(row => {
+            if (!currentFilter) {
+                row.style.display = '';
+                return;
+            }
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(currentFilter) ? '' : 'none';
+        });
     }
 
     async function shipProduct(id, btn) {
@@ -720,9 +745,6 @@
         }
     }
 
-    // ============================================================
-    // БЫСТРОЕ ДОБАВЛЕНИЕ КОЛИЧЕСТВА (+10, +50, +100)
-    // ============================================================
     function quickAdd(id, amount) {
         const input = document.getElementById(`rec_qty_${id}`);
         if (!input) return;
@@ -740,12 +762,12 @@
         msgDiv._timer = setTimeout(() => { msgDiv.className = ''; msgDiv.textContent = ''; }, 4000);
     }
 
+    // ============================================================
+    // ОБРАБОТЧИК ПОИСКА
+    // ============================================================
     searchInput.addEventListener('input', function() {
-        const filter = this.value.toLowerCase();
-        document.querySelectorAll('#shipTable tr, #receiveTable tr').forEach(row => {
-            const text = row.innerText.toLowerCase();
-            row.style.display = text.includes(filter) ? '' : 'none';
-        });
+        currentFilter = this.value.toLowerCase().trim();
+        applyFilter();
     });
 
     window.onload = async function() {
