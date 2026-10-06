@@ -198,7 +198,7 @@
         .btn-receive { background: #2e7d32; color: white; }
         .btn-receive:hover { background: #1b5e20; transform: translateY(-1px); }
         
-        /* ==== Быстрые кнопки для пополнения ==== */
+        /* Быстрые кнопки */
         .receive-cell {
             display: flex;
             align-items: center;
@@ -313,9 +313,13 @@
             <!-- Журнал — для всех пользователей -->
             <a href="/history" class="btn-nav btn-history">📜 Журнал</a>
             
-            <!-- Товары и Excel — только для админов (Павел, Андрей) -->
+            <!-- Товары — только для админов (Павел, Андрей) -->
             {% if session.get('role') == 'admin' %}
                 <a href="/admin/products" class="btn-nav btn-admin">⚙️ Товары</a>
+            {% endif %}
+            
+            <!-- Excel — для Павла, Андрея, Евгения и Виталия -->
+            {% if session.get('username') in ['Павел', 'Андрей', 'Евгений', 'Виталий'] %}
                 <a href="/export_excel" class="btn-nav btn-excel" target="_blank">📊 Excel</a>
             {% endif %}
             
@@ -445,7 +449,6 @@
 
     async function loadData() {
         try {
-            // Сохраняем текущий фильтр
             currentFilter = searchInput.value.toLowerCase().trim();
             
             const resp = await fetch('/api/balances');
@@ -462,7 +465,6 @@
                 const userCanReserve = canReserve && !isFullyBlocked;
                 const qtyDisabled = !userCanShip && !userCanReserve;
                 
-                // ============ СТРОКА ОТГРУЗКИ ============
                 const shipRow = document.createElement('tr');
                 if (isFullyBlocked) {
                     shipRow.className = 'fully-reserved';
@@ -533,7 +535,6 @@
                 `;
                 shipTableBody.appendChild(shipRow);
 
-                // ============ СТРОКА ПОПОЛНЕНИЯ ============
                 const receiveRow = document.createElement('tr');
                 receiveRow.innerHTML = `
                     <td class="id-col">${item.id}</td>
@@ -561,7 +562,6 @@
                 receiveTableBody.appendChild(receiveRow);
             });
             
-            // Восстанавливаем фильтр
             searchInput.value = currentFilter;
             applyFilter();
             
@@ -572,9 +572,6 @@
         }
     }
 
-    // ============================================================
-    // ФИЛЬТРАЦИЯ (сохраняется при обновлении данных)
-    // ============================================================
     function applyFilter() {
         document.querySelectorAll('#shipTable tr, #receiveTable tr').forEach(row => {
             if (!currentFilter) {
@@ -762,9 +759,6 @@
         msgDiv._timer = setTimeout(() => { msgDiv.className = ''; msgDiv.textContent = ''; }, 4000);
     }
 
-    // ============================================================
-    // ОБРАБОТЧИК ПОИСКА
-    // ============================================================
     searchInput.addEventListener('input', function() {
         currentFilter = this.value.toLowerCase().trim();
         applyFilter();

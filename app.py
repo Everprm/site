@@ -63,15 +63,6 @@ def get_db():
 # БРЕНДЫ
 # ============================================================
 
-# Обычные бренды — по порядковому номеру позиции:
-# Sondex:        1 – 119
-# Alfa-Laval:    120 – 216
-# Tranter:       217 – 257
-# Funke РоСВЕП:  258 – 314
-# Kelvion:       315 – 362
-# Теплотекс-APV: 363 – 369
-# Прочее:        370+
-
 BRAND_RANGES = [
     ('Sondex',        1,   119),
     ('Alfa-Laval',    120, 216),
@@ -102,8 +93,6 @@ def get_special_brand_by_name(product_name):
         return 'SIGMA'
     
     # УНИВЕРСАЛЬНАЯ НОРМАЛИЗАЦИЯ:
-    # 1. Кириллическая 'О' → латинская 'O'
-    # 2. Цифра '0' → латинская 'O'
     name_normalized = (
         name_upper
         .replace('О', 'O')
@@ -116,7 +105,7 @@ def get_special_brand_by_name(product_name):
         name_normalized.startswith('A8')):
         return 'ARES'
     
-    # Теплотекс-APV — O34, OO34 (после нормализации: O034 → OO34)
+    # Теплотекс-APV — O34, OO34
     if name_normalized.startswith('OO34') or name_normalized.startswith('O34'):
         return 'Теплотекс-APV'
     
@@ -124,11 +113,6 @@ def get_special_brand_by_name(product_name):
 
 
 def get_brand_by_position(position, product_name=None):
-    """
-    Определяет бренд по:
-    1. Ключевому слову в названии (SIGMA, ARES, O34) — приоритет.
-    2. Порядковому номеру позиции (для остальных).
-    """
     special_brand = get_special_brand_by_name(product_name)
     if special_brand:
         return special_brand
@@ -145,15 +129,15 @@ def get_brand_by_position(position, product_name=None):
 # ============================================================
 
 BRAND_COLORS = {
-    'Sondex':        '1a3c5e',  # тёмно-синий
-    'Alfa-Laval':    'B71C1C',  # тёмно-красный
-    'Tranter':       '4A148C',  # фиолетовый
-    'Funke РоСВЕП':  '1B5E20',  # тёмно-зелёный
-    'Kelvion':       'E65100',  # тёмно-оранжевый
-    'Теплотекс-APV': '006064',  # тёмно-бирюзовый
-    'SIGMA':         '6A1B9A',  # насыщенно-фиолетовый
-    'ARES':          '00838F',  # тёмно-голубой
-    'Прочее':        '424242',  # серый
+    'Sondex':        '1a3c5e',
+    'Alfa-Laval':    'B71C1C',
+    'Tranter':       '4A148C',
+    'Funke РоСВЕП':  '1B5E20',
+    'Kelvion':       'E65100',
+    'Теплотекс-APV': '006064',
+    'SIGMA':         '6A1B9A',
+    'ARES':          '00838F',
+    'Прочее':        '424242',
 }
 
 BRAND_ORDER = {
@@ -200,6 +184,7 @@ def role_required(allowed_roles):
 CAN_SHIP_USERS = ['Павел', 'Валерий', 'Андрей']
 CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий', 'Андрей']
 CAN_RECEIVE_USERS = ['Павел', 'Валерий', 'Андрей']
+CAN_EXPORT_EXCEL = ['Павел', 'Андрей', 'Евгений', 'Виталий']
 
 
 def can_ship(username):
@@ -212,6 +197,10 @@ def can_reserve(username):
 
 def can_receive(username):
     return username in CAN_RECEIVE_USERS
+
+
+def can_export_excel(username):
+    return username in CAN_EXPORT_EXCEL
 
 
 # ============================================================
@@ -234,7 +223,6 @@ def index():
 @app.route('/history')
 @login_required
 def history():
-    """Журнал движений. Доступен всем авторизованным пользователям."""
     username = session.get('username')
     
     if not username:
@@ -329,7 +317,8 @@ def current_user():
         'can_ship': can_ship(username),
         'can_reserve': can_reserve(username),
         'can_receive': can_receive(username),
-        'can_view_history': True
+        'can_view_history': True,
+        'can_export_excel': can_export_excel(username)
     })
 
 
@@ -438,7 +427,6 @@ def ship():
 @app.route('/api/receive', methods=['POST'])
 @login_required
 def receive():
-    """Пополнение склада. Разрешено: Павел, Валерий, Андрей."""
     username = session.get('username')
     
     if not can_receive(username):
@@ -509,7 +497,6 @@ def admin_get_products():
 @login_required
 @role_required(['admin'])
 def admin_add_product():
-    """Добавить товар. Если указан after_id — товар встанет ПОСЛЕ него."""
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
@@ -855,8 +842,10 @@ def get_reserves():
 @app.route('/export_excel')
 @login_required
 def export_excel():
-    """Экспорт остатков в Excel с группировкой по брендам (только для админа)"""
-    if session.get('role') != 'admin':
+    """Экспорт остатков в Excel с группировкой по брендам."""
+    username = session.get('username')
+    
+    if not can_export_excel(username):
         return render_template('access_denied.html'), 403
     
     # ============================================================
@@ -886,7 +875,7 @@ def export_excel():
     conn.close()
     
     # ============================================================
-    # ПОДГОТОВКА СПИСКА (сортировка по sort_order)
+    # ПОДГОТОВКА СПИСКА
     # ============================================================
     all_products = []
     for item in data:
@@ -900,7 +889,6 @@ def export_excel():
         
         all_products.append(item_dict)
     
-    # Сортируем все товары по sort_order
     all_products.sort(key=lambda x: (x['_sort_order'], x['id']))
     
     # ============================================================
@@ -916,7 +904,6 @@ def export_excel():
             brands_data[brand_name] = []
         brands_data[brand_name].append(item_dict)
     
-    # Сортировка брендов в правильном порядке
     sorted_brands = sorted(brands_data.items(), key=lambda x: BRAND_ORDER.get(x[0], 99))
     
     # ============================================================
@@ -930,9 +917,7 @@ def export_excel():
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
     
-    # ============================================================
-    # ШАПКА ОРГАНИЗАЦИИ
-    # ============================================================
+    # ШАПКА
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     static_dir = os.path.join(BASE_DIR, 'static')
     logo_path = os.path.join(static_dir, 'logo.png')
@@ -943,11 +928,8 @@ def export_excel():
             img.width = 900
             img.height = 115
             ws.add_image(img, 'A1')
-            print("✅ Логотип добавлен")
         except Exception as e:
             print(f"⚠️ Не удалось добавить логотип: {e}")
-    else:
-        print(f"⚠️ Логотип не найден: {logo_path}")
     
     ws.row_dimensions[1].height = 29
     ws.row_dimensions[2].height = 29
@@ -964,9 +946,7 @@ def export_excel():
     
     ws.row_dimensions[7].height = 10
     
-    # ============================================================
-    # ЗАГОЛОВКИ ТАБЛИЦЫ
-    # ============================================================
+    # ЗАГОЛОВКИ
     HEADER_ROW = 8
     current_row = HEADER_ROW + 1
     
@@ -996,15 +976,12 @@ def export_excel():
     
     ws.row_dimensions[HEADER_ROW].height = 25
     
-    # ============================================================
-    # ДАННЫЕ С ГРУППИРОВКОЙ
-    # ============================================================
+    # ДАННЫЕ
     counter = 0
     brand_header_font = Font(bold=True, color="FFFFFF", size=12)
     brand_alignment = Alignment(horizontal="left", vertical="center", indent=1)
     
     for brand_name, products in sorted_brands:
-        # ===== Заголовок блока =====
         ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
         
         brand_color = BRAND_COLORS.get(brand_name, '1a3c5e')
@@ -1018,7 +995,6 @@ def export_excel():
         ws.row_dimensions[current_row].height = 22
         current_row += 1
         
-        # ===== Товары блока =====
         for item in products:
             counter += 1
             
@@ -1065,18 +1041,12 @@ def export_excel():
             
             current_row += 1
         
-        # Пустая строка-разделитель
         ws.row_dimensions[current_row].height = 8
         current_row += 1
     
-    # ============================================================
-    # ЗАМОРОЗКА
-    # ============================================================
     ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
     
-    # ============================================================
-    # СТАТИСТИКА ВНИЗУ
-    # ============================================================
+    # СТАТИСТИКА
     last_row = current_row + 1
     
     total_items = len(data)
@@ -1091,11 +1061,9 @@ def export_excel():
     ws.cell(row=last_row + 2, column=2, value=f'Позиций с остатком менее 5 шт: {low_items}').font = info_font
     ws.cell(row=last_row + 3, column=2, value=f'Позиций с нулевым остатком: {zero_items}').font = info_font
     ws.cell(row=last_row + 4, column=2, value=f'Позиций в резерве: {reserved_items}').font = info_font
-    ws.cell(row=last_row + 5, column=2, value=f'Выгрузил: {session.get("username")} (администратор)').font = info_font
+    ws.cell(row=last_row + 5, column=2, value=f'Выгрузил: {session.get("username")}').font = info_font
     
-    # ============================================================
-    # СОХРАНЕНИЕ И ОТПРАВКА
-    # ============================================================
+    # СОХРАНЕНИЕ
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
