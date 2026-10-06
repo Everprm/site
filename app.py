@@ -754,6 +754,39 @@ def export_excel():
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     
+    # ============================================================
+    # ДИАГНОСТИКА ЛОГОТИПА
+    # ============================================================
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    static_dir = os.path.join(BASE_DIR, 'static')
+    logo_path = os.path.join(static_dir, 'logo.png')
+    
+    print("=" * 60)
+    print("🔍 ДИАГНОСТИКА ЛОГОТИПА")
+    print(f"   BASE_DIR: {BASE_DIR}")
+    print(f"   static_dir: {static_dir}")
+    print(f"   static_dir существует: {os.path.exists(static_dir)}")
+    print(f"   logo_path: {logo_path}")
+    print(f"   logo_path существует: {os.path.exists(logo_path)}")
+    
+    if os.path.exists(static_dir):
+        try:
+            files = os.listdir(static_dir)
+            print(f"   Файлы в static/: {files}")
+        except Exception as e:
+            print(f"   Ошибка чтения static/: {e}")
+    print("=" * 60)
+    
+    # Проверка Pillow
+    try:
+        from PIL import Image
+        print("✅ Pillow установлен")
+    except ImportError as e:
+        print(f"❌ Pillow НЕ установлен: {e}")
+    
+    # ============================================================
+    # ЗАПРОС ДАННЫХ
+    # ============================================================
     conn = get_db()
     cur = conn.cursor()
     cur.execute('''
@@ -792,14 +825,13 @@ def export_excel():
     # ============================================================
     
     # 1. Логотип
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'logo.png')
     if os.path.exists(logo_path):
         try:
             img = XLImage(logo_path)
             img.width = 900
             img.height = 115
             ws.add_image(img, 'A1')
-            print(f"✅ Логотип добавлен: {logo_path}, размер {img.width}x{img.height}")
+            print(f"✅ Логотип добавлен, размер {img.width}x{img.height}")
         except Exception as e:
             print(f"⚠️ Не удалось добавить логотип: {e}")
     else:
@@ -857,26 +889,30 @@ def export_excel():
     ws.row_dimensions[HEADER_ROW].height = 25
     
     # ============================================================
-    # ДАННЫЕ
+    # ДАННЫЕ (с сквозной нумерацией 1, 2, 3, 4...)
     # ============================================================
     for row_idx, item in enumerate(data, DATA_START_ROW):
         available = item['balance'] - item['reserved']
         
-        cell = ws.cell(row=row_idx, column=1, value=item['id'])
+        # № п/п — сквозная нумерация 1, 2, 3, 4...
+        cell = ws.cell(row=row_idx, column=1, value=row_idx - DATA_START_ROW + 1)
         cell.font = data_font
         cell.alignment = number_alignment
         cell.border = thin_border
         
+        # Наименование
         cell = ws.cell(row=row_idx, column=2, value=item['name'])
         cell.font = data_font
         cell.alignment = data_alignment
         cell.border = thin_border
         
+        # Ед. изм.
         cell = ws.cell(row=row_idx, column=3, value=item['unit'] or 'шт')
         cell.font = data_font
         cell.alignment = number_alignment
         cell.border = thin_border
         
+        # Остаток
         cell = ws.cell(row=row_idx, column=4, value=item['balance'])
         cell.alignment = number_alignment
         cell.border = thin_border
@@ -889,6 +925,7 @@ def export_excel():
         else:
             cell.font = Font(color="1B5E20", size=10)
         
+        # Резерв
         cell = ws.cell(row=row_idx, column=5, value=item['reserved'])
         cell.alignment = number_alignment
         cell.border = thin_border
@@ -898,6 +935,7 @@ def export_excel():
         else:
             cell.font = data_font
         
+        # Доступно
         cell = ws.cell(row=row_idx, column=6, value=available)
         cell.alignment = number_alignment
         cell.border = thin_border
