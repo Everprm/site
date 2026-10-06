@@ -60,17 +60,17 @@ def get_db():
 
 
 # ============================================================
-# БРЕНДЫ: ГРАНИЦЫ ПО ПОРЯДКОВОМУ НОМЕРУ
+# БРЕНДЫ
 # ============================================================
 
-# Диапазоны по порядковому номеру позиции в отсортированном списке:
+# Обычные бренды — по порядковому номеру позиции в отсортированном списке:
 # Sondex:        1 – 119
 # Alfa-Laval:    120 – 216
 # Tranter:       217 – 257
 # Funke:         258 – 314
 # Kelvion:       315 – 362
 # Теплотекс-APV: 363 – 369
-# Прочее:        370+
+# Прочее:        370+ (но только те, что НЕ SIGMA и НЕ ARES)
 
 BRAND_RANGES = [
     ('Sondex',        1,   119),
@@ -83,20 +83,53 @@ BRAND_RANGES = [
 ]
 
 
-def get_brand_by_position(position):
+def get_special_brand_by_name(product_name):
     """
-    Определяет бренд по ПОРЯДКОВОМУ НОМЕРУ позиции в отсортированном списке.
+    Определяет СПЕЦИАЛЬНЫЙ бренд по ключевому слову в названии.
+    Возвращает название бренда или None.
     
-    position — целое число, начиная с 1.
+    SIGMA — если название начинается с 'SIGMA'
+    ARES  — если название начинается с 'A4', 'A6', 'A8' (латиница)
     """
+    if not product_name:
+        return None
+    
+    name_upper = product_name.upper().strip()
+    
+    # SIGMA
+    if name_upper.startswith('SIGMA'):
+        return 'SIGMA'
+    
+    # ARES — A4, A6, A8 (латиница)
+    if (name_upper.startswith('A4') or 
+        name_upper.startswith('A6') or 
+        name_upper.startswith('A8')):
+        return 'ARES'
+    
+    return None
+
+
+def get_brand_by_position(position, product_name=None):
+    """
+    Определяет бренд по:
+    1. Ключевому слову в названии (SIGMA, ARES) — приоритет.
+    2. Порядковому номеру позиции (для остальных).
+    """
+    # Сначала проверяем ключевые слова
+    special_brand = get_special_brand_by_name(product_name)
+    if special_brand:
+        return special_brand
+    
+    # Если не найдено — по диапазону
     for brand_name, start, end in BRAND_RANGES:
         if start <= position <= end:
             return brand_name
+    
     return 'Прочее'
 
 
 # ============================================================
-# ЦВЕТА ДЛЯ БЛОКОВ (по брендам)
+# ЦВЕТА И ПОРЯДОК БРЕНДОВ
 # ============================================================
 
 BRAND_COLORS = {
@@ -106,7 +139,21 @@ BRAND_COLORS = {
     'Funke':         '1B5E20',  # тёмно-зелёный
     'Kelvion':       'E65100',  # тёмно-оранжевый
     'Теплотекс-APV': '006064',  # тёмно-бирюзовый
+    'SIGMA':         '6A1B9A',  # насыщенно-фиолетовый
+    'ARES':          '00838F',  # тёмно-голубой
     'Прочее':        '424242',  # серый
+}
+
+BRAND_ORDER = {
+    'Sondex':        1,
+    'Alfa-Laval':    2,
+    'Tranter':       3,
+    'Funke':         4,
+    'Kelvion':       5,
+    'Теплотекс-APV': 6,
+    'SIGMA':         7,
+    'ARES':          8,
+    'Прочее':        9,
 }
 
 
@@ -801,7 +848,7 @@ def export_excel():
         return render_template('access_denied.html'), 403
     
     # ============================================================
-    # ЗАПРОС ДАННЫХ (с sort_order)
+    # ЗАПРОС ДАННЫХ
     # ============================================================
     conn = get_db()
     cur = conn.cursor()
@@ -834,7 +881,6 @@ def export_excel():
         item_dict = dict(item)
         item_dict['available'] = item_dict['balance'] - item_dict['reserved']
         
-        # Приводим sort_order к float для корректной сортировки
         try:
             item_dict['_sort_order'] = float(item_dict.get('sort_order', item_dict['id'])) if item_dict.get('sort_order') is not None else 0
         except (ValueError, TypeError):
@@ -846,22 +892,21 @@ def export_excel():
     all_products.sort(key=lambda x: (x['_sort_order'], x['id']))
     
     # ============================================================
-    # ГРУППИРОВКА ПО БРЕНДАМ (по порядковому номеру позиции)
+    # ГРУППИРОВКА ПО БРЕНДАМ
     # ============================================================
     brands_data = {}
     
     for idx, item_dict in enumerate(all_products, start=1):
-        # Определяем бренд по порядковому номеру
-        brand_name = get_brand_by_position(idx)
+        # Определяем бренд: сначала по имени (SIGMA/ARES), потом по позиции
+        brand_name = get_brand_by_position(idx, item_dict['name'])
         item_dict['_brand_name'] = brand_name
         
         if brand_name not in brands_data:
             brands_data[brand_name] = []
         brands_data[brand_name].append(item_dict)
     
-    # Сортировка брендов в порядке, заданном в BRAND_RANGES
-    brand_order = {name: i for i, (name, _, _) in enumerate(BRAND_RANGES)}
-    sorted_brands = sorted(brands_data.items(), key=lambda x: brand_order.get(x[0], 99))
+    # Сортировка брендов в правильном порядке
+    sorted_brands = sorted(brands_data.items(), key=lambda x: BRAND_ORDER.get(x[0], 99))
     
     # ============================================================
     # СОЗДАНИЕ EXCEL
@@ -962,7 +1007,7 @@ def export_excel():
         ws.row_dimensions[current_row].height = 22
         current_row += 1
         
-        # ===== Товары блока (в порядке sort_order) =====
+        # ===== Товары блока =====
         for item in products:
             counter += 1
             
@@ -1009,7 +1054,7 @@ def export_excel():
             
             current_row += 1
         
-        # Пустая строка-разделитель между блоками
+        # Пустая строка-разделитель
         ws.row_dimensions[current_row].height = 8
         current_row += 1
     
