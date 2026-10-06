@@ -7,6 +7,7 @@ import os
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.drawing.image import Image as XLImage
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -403,11 +404,7 @@ def admin_get_products():
 @login_required
 @role_required(['admin'])
 def admin_add_product():
-    """
-    Добавить товар.
-    Если указан after_id — товар встанет ПОСЛЕ этого товара.
-    Иначе — в конец списка.
-    """
+    """Добавить товар. Если указан after_id — товар встанет ПОСЛЕ него."""
     data = request.get_json()
     name = (data.get('name') or '').strip()
     unit = (data.get('unit') or 'шт').strip() or 'шт'
@@ -428,7 +425,6 @@ def admin_add_product():
     conn = get_db()
     cur = conn.cursor()
     
-    # Проверка на дубликат имени
     cur.execute("SELECT id FROM products WHERE name = %s", (name,))
     existing = cur.fetchone()
     if existing:
@@ -436,7 +432,6 @@ def admin_add_product():
         conn.close()
         return jsonify({'error': f'Товар с именем "{name}" уже существует'}), 400
     
-    # Определяем sort_order для нового товара
     new_sort_order = None
     
     if after_id:
@@ -469,7 +464,6 @@ def admin_add_product():
         cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 as new_order FROM products")
         new_sort_order = float(cur.fetchone()['new_order'])
     
-    # Вставляем товар
     cur.execute(
         "INSERT INTO products (name, unit, sort_order) VALUES (%s, %s, %s) RETURNING id",
         (name, unit, new_sort_order)
@@ -750,12 +744,13 @@ def get_reserves():
 
 
 # ============================================================
-# ЭКСПОРТ В EXCEL
+# ЭКСПОРТ В EXCEL С ШАПКОЙ ОРГАНИЗАЦИИ
 # ============================================================
 
 @app.route('/export_excel')
 @login_required
 def export_excel():
+    """Экспорт остатков в Excel с шапкой организации (только для админа)"""
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     
@@ -785,6 +780,56 @@ def export_excel():
     ws = wb.active
     ws.title = "Остатки склада"
     
+    # ============================================================
+    # ШИРИНА КОЛОНОК
+    # ============================================================
+    column_widths = {'A': 8, 'B': 60, 'C': 12, 'D': 15, 'E': 15, 'F': 15}
+    for col, width in column_widths.items():
+        ws.column_dimensions[col].width = width
+    
+    # ============================================================
+    # ШАПКА ОРГАНИЗАЦИИ (только логотип + полосы)
+    # ============================================================
+    
+    # 1. Логотип
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'logo.png')
+    if os.path.exists(logo_path):
+        try:
+            img = XLImage(logo_path)
+            img.width = 900
+            img.height = 115
+            ws.add_image(img, 'A1')
+            print(f"✅ Логотип добавлен: {logo_path}, размер {img.width}x{img.height}")
+        except Exception as e:
+            print(f"⚠️ Не удалось добавить логотип: {e}")
+    else:
+        print(f"⚠️ Логотип не найден: {logo_path}")
+    
+    # 2. Высота строк под шапку
+    ws.row_dimensions[1].height = 29
+    ws.row_dimensions[2].height = 29
+    ws.row_dimensions[3].height = 29
+    ws.row_dimensions[4].height = 29
+    ws.row_dimensions[5].height = 8
+    ws.row_dimensions[6].height = 5
+    
+    # 3. Цветные полосы (красная + синяя)
+    red_fill = PatternFill(start_color="E53935", end_color="E53935", fill_type="solid")
+    blue_fill = PatternFill(start_color="1a3c5e", end_color="1a3c5e", fill_type="solid")
+    
+    for col in range(1, 7):
+        ws.cell(row=5, column=col).fill = red_fill
+        ws.cell(row=6, column=col).fill = blue_fill
+    
+    # 4. Пустая строка-разделитель
+    ws.row_dimensions[7].height = 10
+    
+    # ============================================================
+    # ЗАГОЛОВКИ ТАБЛИЦЫ
+    # ============================================================
+    HEADER_ROW = 8
+    DATA_START_ROW = HEADER_ROW + 1
+    
     header_font = Font(bold=True, color="FFFFFF", size=11)
     header_fill = PatternFill(start_color="1a3c5e", end_color="1a3c5e", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center")
@@ -803,13 +848,18 @@ def export_excel():
     headers = ['№ п/п', 'Наименование позиции', 'Ед. изм.', 'Остаток, шт', 'Резерв, шт', 'Доступно, шт']
     
     for col, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col, value=header)
+        cell = ws.cell(row=HEADER_ROW, column=col, value=header)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
         cell.border = thin_border
     
-    for row_idx, item in enumerate(data, 2):
+    ws.row_dimensions[HEADER_ROW].height = 25
+    
+    # ============================================================
+    # ДАННЫЕ
+    # ============================================================
+    for row_idx, item in enumerate(data, DATA_START_ROW):
         available = item['balance'] - item['reserved']
         
         cell = ws.cell(row=row_idx, column=1, value=item['id'])
@@ -853,25 +903,33 @@ def export_excel():
         cell.border = thin_border
         cell.font = Font(color="1B5E20", bold=True, size=10)
     
-    column_widths = {'A': 8, 'B': 60, 'C': 12, 'D': 15, 'E': 15, 'F': 15}
-    for col, width in column_widths.items():
-        ws.column_dimensions[col].width = width
+    # ============================================================
+    # ЗАМОРОЗКА
+    # ============================================================
+    ws.freeze_panes = ws.cell(row=DATA_START_ROW, column=1)
     
-    ws.freeze_panes = 'A2'
+    # ============================================================
+    # СТАТИСТИКА ВНИЗУ
+    # ============================================================
+    last_row = DATA_START_ROW + len(data) + 1
     
     total_items = len(data)
     low_items = len([item for item in data if 0 < item['balance'] < 5])
     zero_items = len([item for item in data if item['balance'] <= 0])
     reserved_items = len([item for item in data if item['reserved'] > 0])
     
-    ws.append([])
-    ws.append([f'Дата выгрузки: {get_perm_time().strftime("%d.%m.%Y %H:%M")} (Пермь)'])
-    ws.append([f'Всего позиций: {total_items}'])
-    ws.append([f'Позиций с остатком менее 5 шт: {low_items}'])
-    ws.append([f'Позиций с нулевым остатком: {zero_items}'])
-    ws.append([f'Позиций в резерве: {reserved_items}'])
-    ws.append([f'Выгрузил: {session.get("username")} (администратор)'])
+    info_font = Font(italic=True, size=9, color="777777")
     
+    ws.cell(row=last_row, column=2, value=f'Дата выгрузки: {get_perm_time().strftime("%d.%m.%Y %H:%M")} (Пермь)').font = info_font
+    ws.cell(row=last_row + 1, column=2, value=f'Всего позиций: {total_items}').font = info_font
+    ws.cell(row=last_row + 2, column=2, value=f'Позиций с остатком менее 5 шт: {low_items}').font = info_font
+    ws.cell(row=last_row + 3, column=2, value=f'Позиций с нулевым остатком: {zero_items}').font = info_font
+    ws.cell(row=last_row + 4, column=2, value=f'Позиций в резерве: {reserved_items}').font = info_font
+    ws.cell(row=last_row + 5, column=2, value=f'Выгрузил: {session.get("username")} (администратор)').font = info_font
+    
+    # ============================================================
+    # СОХРАНЕНИЕ И ОТПРАВКА
+    # ============================================================
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
