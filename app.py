@@ -60,6 +60,57 @@ def get_db():
 
 
 # ============================================================
+# БРЕНДЫ: ГРАНИЦЫ ПО ПОРЯДКОВОМУ НОМЕРУ
+# ============================================================
+
+# Диапазоны по порядковому номеру позиции в отсортированном списке:
+# Sondex:        1 – 119
+# Alfa-Laval:    120 – 216
+# Tranter:       217 – 257
+# Funke:         258 – 314
+# Kelvion:       315 – 362
+# Теплотекс-APV: 363 – 369
+# Прочее:        370+
+
+BRAND_RANGES = [
+    ('Sondex',        1,   119),
+    ('Alfa-Laval',    120, 216),
+    ('Tranter',       217, 257),
+    ('Funke',         258, 314),
+    ('Kelvion',       315, 362),
+    ('Теплотекс-APV', 363, 369),
+    ('Прочее',        370, 999999),
+]
+
+
+def get_brand_by_position(position):
+    """
+    Определяет бренд по ПОРЯДКОВОМУ НОМЕРУ позиции в отсортированном списке.
+    
+    position — целое число, начиная с 1.
+    """
+    for brand_name, start, end in BRAND_RANGES:
+        if start <= position <= end:
+            return brand_name
+    return 'Прочее'
+
+
+# ============================================================
+# ЦВЕТА ДЛЯ БЛОКОВ (по брендам)
+# ============================================================
+
+BRAND_COLORS = {
+    'Sondex':        '1a3c5e',  # тёмно-синий
+    'Alfa-Laval':    'B71C1C',  # тёмно-красный
+    'Tranter':       '4A148C',  # фиолетовый
+    'Funke':         '1B5E20',  # тёмно-зелёный
+    'Kelvion':       'E65100',  # тёмно-оранжевый
+    'Теплотекс-APV': '006064',  # тёмно-бирюзовый
+    'Прочее':        '424242',  # серый
+}
+
+
+# ============================================================
 # ДЕКОРАТОРЫ
 # ============================================================
 
@@ -87,13 +138,8 @@ def role_required(allowed_roles):
 # ПРАВА ПОЛЬЗОВАТЕЛЕЙ
 # ============================================================
 
-# Кто может отгружать
 CAN_SHIP_USERS = ['Павел', 'Валерий', 'Андрей']
-
-# Кто может резервировать и снимать резерв
 CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий', 'Андрей']
-
-# Кто может пополнять склад
 CAN_RECEIVE_USERS = ['Павел', 'Валерий', 'Андрей']
 
 
@@ -744,48 +790,18 @@ def get_reserves():
 
 
 # ============================================================
-# ЭКСПОРТ В EXCEL С ШАПКОЙ ОРГАНИЗАЦИИ
+# ЭКСПОРТ В EXCEL С ГРУППИРОВКОЙ ПО БРЕНДАМ
 # ============================================================
 
 @app.route('/export_excel')
 @login_required
 def export_excel():
-    """Экспорт остатков в Excel с шапкой организации (только для админа)"""
+    """Экспорт остатков в Excel с группировкой по брендам (только для админа)"""
     if session.get('role') != 'admin':
         return render_template('access_denied.html'), 403
     
     # ============================================================
-    # ДИАГНОСТИКА ЛОГОТИПА
-    # ============================================================
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    static_dir = os.path.join(BASE_DIR, 'static')
-    logo_path = os.path.join(static_dir, 'logo.png')
-    
-    print("=" * 60)
-    print("🔍 ДИАГНОСТИКА ЛОГОТИПА")
-    print(f"   BASE_DIR: {BASE_DIR}")
-    print(f"   static_dir: {static_dir}")
-    print(f"   static_dir существует: {os.path.exists(static_dir)}")
-    print(f"   logo_path: {logo_path}")
-    print(f"   logo_path существует: {os.path.exists(logo_path)}")
-    
-    if os.path.exists(static_dir):
-        try:
-            files = os.listdir(static_dir)
-            print(f"   Файлы в static/: {files}")
-        except Exception as e:
-            print(f"   Ошибка чтения static/: {e}")
-    print("=" * 60)
-    
-    # Проверка Pillow
-    try:
-        from PIL import Image
-        print("✅ Pillow установлен")
-    except ImportError as e:
-        print(f"❌ Pillow НЕ установлен: {e}")
-    
-    # ============================================================
-    # ЗАПРОС ДАННЫХ
+    # ЗАПРОС ДАННЫХ (с sort_order)
     # ============================================================
     conn = get_db()
     cur = conn.cursor()
@@ -793,6 +809,7 @@ def export_excel():
         SELECT 
             p.id,
             p.name,
+            p.sort_order,
             COALESCE(SUM(sm.quantity), 0) as balance,
             COALESCE((
                 SELECT SUM(r.quantity) 
@@ -809,35 +826,73 @@ def export_excel():
     cur.close()
     conn.close()
     
+    # ============================================================
+    # ПОДГОТОВКА СПИСКА (сортировка по sort_order)
+    # ============================================================
+    all_products = []
+    for item in data:
+        item_dict = dict(item)
+        item_dict['available'] = item_dict['balance'] - item_dict['reserved']
+        
+        # Приводим sort_order к float для корректной сортировки
+        try:
+            item_dict['_sort_order'] = float(item_dict.get('sort_order', item_dict['id'])) if item_dict.get('sort_order') is not None else 0
+        except (ValueError, TypeError):
+            item_dict['_sort_order'] = 0
+        
+        all_products.append(item_dict)
+    
+    # Сортируем все товары по sort_order (как в приложении)
+    all_products.sort(key=lambda x: (x['_sort_order'], x['id']))
+    
+    # ============================================================
+    # ГРУППИРОВКА ПО БРЕНДАМ (по порядковому номеру позиции)
+    # ============================================================
+    brands_data = {}
+    
+    for idx, item_dict in enumerate(all_products, start=1):
+        # Определяем бренд по порядковому номеру
+        brand_name = get_brand_by_position(idx)
+        item_dict['_brand_name'] = brand_name
+        
+        if brand_name not in brands_data:
+            brands_data[brand_name] = []
+        brands_data[brand_name].append(item_dict)
+    
+    # Сортировка брендов в порядке, заданном в BRAND_RANGES
+    brand_order = {name: i for i, (name, _, _) in enumerate(BRAND_RANGES)}
+    sorted_brands = sorted(brands_data.items(), key=lambda x: brand_order.get(x[0], 99))
+    
+    # ============================================================
+    # СОЗДАНИЕ EXCEL
+    # ============================================================
     wb = Workbook()
     ws = wb.active
     ws.title = "Остатки склада"
     
-    # ============================================================
-    # ШИРИНА КОЛОНОК
-    # ============================================================
     column_widths = {'A': 8, 'B': 60, 'C': 12, 'D': 15, 'E': 15, 'F': 15}
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
     
     # ============================================================
-    # ШАПКА ОРГАНИЗАЦИИ (только логотип + полосы)
+    # ШАПКА ОРГАНИЗАЦИИ
     # ============================================================
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    static_dir = os.path.join(BASE_DIR, 'static')
+    logo_path = os.path.join(static_dir, 'logo.png')
     
-    # 1. Логотип
     if os.path.exists(logo_path):
         try:
             img = XLImage(logo_path)
             img.width = 900
             img.height = 115
             ws.add_image(img, 'A1')
-            print(f"✅ Логотип добавлен, размер {img.width}x{img.height}")
+            print("✅ Логотип добавлен")
         except Exception as e:
             print(f"⚠️ Не удалось добавить логотип: {e}")
     else:
         print(f"⚠️ Логотип не найден: {logo_path}")
     
-    # 2. Высота строк под шапку
     ws.row_dimensions[1].height = 29
     ws.row_dimensions[2].height = 29
     ws.row_dimensions[3].height = 29
@@ -845,22 +900,19 @@ def export_excel():
     ws.row_dimensions[5].height = 8
     ws.row_dimensions[6].height = 5
     
-    # 3. Цветные полосы (красная + синяя)
     red_fill = PatternFill(start_color="E53935", end_color="E53935", fill_type="solid")
     blue_fill = PatternFill(start_color="1a3c5e", end_color="1a3c5e", fill_type="solid")
-    
     for col in range(1, 7):
         ws.cell(row=5, column=col).fill = red_fill
         ws.cell(row=6, column=col).fill = blue_fill
     
-    # 4. Пустая строка-разделитель
     ws.row_dimensions[7].height = 10
     
     # ============================================================
     # ЗАГОЛОВКИ ТАБЛИЦЫ
     # ============================================================
     HEADER_ROW = 8
-    DATA_START_ROW = HEADER_ROW + 1
+    current_row = HEADER_ROW + 1
     
     header_font = Font(bold=True, color="FFFFFF", size=11)
     header_fill = PatternFill(start_color="1a3c5e", end_color="1a3c5e", fill_type="solid")
@@ -889,67 +941,87 @@ def export_excel():
     ws.row_dimensions[HEADER_ROW].height = 25
     
     # ============================================================
-    # ДАННЫЕ (с сквозной нумерацией 1, 2, 3, 4...)
+    # ДАННЫЕ С ГРУППИРОВКОЙ
     # ============================================================
-    for row_idx, item in enumerate(data, DATA_START_ROW):
-        available = item['balance'] - item['reserved']
+    counter = 0
+    brand_header_font = Font(bold=True, color="FFFFFF", size=12)
+    brand_alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    
+    for brand_name, products in sorted_brands:
+        # ===== Заголовок блока =====
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
         
-        # № п/п — сквозная нумерация 1, 2, 3, 4...
-        cell = ws.cell(row=row_idx, column=1, value=row_idx - DATA_START_ROW + 1)
-        cell.font = data_font
-        cell.alignment = number_alignment
-        cell.border = thin_border
+        brand_color = BRAND_COLORS.get(brand_name, '1a3c5e')
+        brand_fill = PatternFill(start_color=brand_color, end_color=brand_color, fill_type="solid")
         
-        # Наименование
-        cell = ws.cell(row=row_idx, column=2, value=item['name'])
-        cell.font = data_font
-        cell.alignment = data_alignment
-        cell.border = thin_border
+        header_cell = ws.cell(row=current_row, column=1, value=f"  {brand_name}  ({len(products)} позиций)")
+        header_cell.font = brand_header_font
+        header_cell.fill = brand_fill
+        header_cell.alignment = brand_alignment
         
-        # Ед. изм.
-        cell = ws.cell(row=row_idx, column=3, value=item['unit'] or 'шт')
-        cell.font = data_font
-        cell.alignment = number_alignment
-        cell.border = thin_border
+        ws.row_dimensions[current_row].height = 22
+        current_row += 1
         
-        # Остаток
-        cell = ws.cell(row=row_idx, column=4, value=item['balance'])
-        cell.alignment = number_alignment
-        cell.border = thin_border
-        if item['balance'] < 5 and item['balance'] > 0:
-            cell.font = Font(color="FF8F00", bold=True, size=10)
-            cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
-        elif item['balance'] <= 0:
-            cell.font = Font(color="FF0000", bold=True, size=10)
-            cell.fill = PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid")
-        else:
-            cell.font = Font(color="1B5E20", size=10)
-        
-        # Резерв
-        cell = ws.cell(row=row_idx, column=5, value=item['reserved'])
-        cell.alignment = number_alignment
-        cell.border = thin_border
-        if item['reserved'] > 0:
-            cell.font = Font(color="F57C00", bold=True, size=10)
-            cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
-        else:
+        # ===== Товары блока (в порядке sort_order) =====
+        for item in products:
+            counter += 1
+            
+            cell = ws.cell(row=current_row, column=1, value=counter)
             cell.font = data_font
+            cell.alignment = number_alignment
+            cell.border = thin_border
+            
+            cell = ws.cell(row=current_row, column=2, value=item['name'])
+            cell.font = data_font
+            cell.alignment = data_alignment
+            cell.border = thin_border
+            
+            cell = ws.cell(row=current_row, column=3, value=item['unit'] or 'шт')
+            cell.font = data_font
+            cell.alignment = number_alignment
+            cell.border = thin_border
+            
+            cell = ws.cell(row=current_row, column=4, value=item['balance'])
+            cell.alignment = number_alignment
+            cell.border = thin_border
+            if item['balance'] < 5 and item['balance'] > 0:
+                cell.font = Font(color="FF8F00", bold=True, size=10)
+                cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
+            elif item['balance'] <= 0:
+                cell.font = Font(color="FF0000", bold=True, size=10)
+                cell.fill = PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid")
+            else:
+                cell.font = Font(color="1B5E20", size=10)
+            
+            cell = ws.cell(row=current_row, column=5, value=item['reserved'])
+            cell.alignment = number_alignment
+            cell.border = thin_border
+            if item['reserved'] > 0:
+                cell.font = Font(color="F57C00", bold=True, size=10)
+                cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
+            else:
+                cell.font = data_font
+            
+            cell = ws.cell(row=current_row, column=6, value=item['available'])
+            cell.alignment = number_alignment
+            cell.border = thin_border
+            cell.font = Font(color="1B5E20", bold=True, size=10)
+            
+            current_row += 1
         
-        # Доступно
-        cell = ws.cell(row=row_idx, column=6, value=available)
-        cell.alignment = number_alignment
-        cell.border = thin_border
-        cell.font = Font(color="1B5E20", bold=True, size=10)
+        # Пустая строка-разделитель между блоками
+        ws.row_dimensions[current_row].height = 8
+        current_row += 1
     
     # ============================================================
     # ЗАМОРОЗКА
     # ============================================================
-    ws.freeze_panes = ws.cell(row=DATA_START_ROW, column=1)
+    ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
     
     # ============================================================
     # СТАТИСТИКА ВНИЗУ
     # ============================================================
-    last_row = DATA_START_ROW + len(data) + 1
+    last_row = current_row + 1
     
     total_items = len(data)
     low_items = len([item for item in data if 0 < item['balance'] < 5])
