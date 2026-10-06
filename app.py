@@ -63,20 +63,20 @@ def get_db():
 # БРЕНДЫ
 # ============================================================
 
-# Обычные бренды — по порядковому номеру позиции в отсортированном списке:
+# Обычные бренды — по порядковому номеру позиции:
 # Sondex:        1 – 119
 # Alfa-Laval:    120 – 216
 # Tranter:       217 – 257
-# Funke:         258 – 314
+# Funke РоСВЕП:  258 – 314
 # Kelvion:       315 – 362
 # Теплотекс-APV: 363 – 369
-# Прочее:        370+ (но только те, что НЕ SIGMA и НЕ ARES)
+# Прочее:        370+
 
 BRAND_RANGES = [
     ('Sondex',        1,   119),
     ('Alfa-Laval',    120, 216),
     ('Tranter',       217, 257),
-    ('Funke',         258, 314),
+    ('Funke РоСВЕП',  258, 314),
     ('Kelvion',       315, 362),
     ('Теплотекс-APV', 363, 369),
     ('Прочее',        370, 999999),
@@ -86,10 +86,11 @@ BRAND_RANGES = [
 def get_special_brand_by_name(product_name):
     """
     Определяет СПЕЦИАЛЬНЫЙ бренд по ключевому слову в названии.
-    Возвращает название бренда или None.
     
-    SIGMA — если название начинается с 'SIGMA'
-    ARES  — если название начинается с 'A4', 'A6', 'A8' (латиница)
+    SIGMA         — если название начинается с 'SIGMA'
+    ARES          — если название начинается с 'A4', 'A6', 'A8' (латиница)
+    Теплотекс-APV — если название начинается с 'O34', 'O034', 'OO34', '0034'
+                    (любая комбинация O/О/0)
     """
     if not product_name:
         return None
@@ -100,11 +101,24 @@ def get_special_brand_by_name(product_name):
     if name_upper.startswith('SIGMA'):
         return 'SIGMA'
     
+    # УНИВЕРСАЛЬНАЯ НОРМАЛИЗАЦИЯ:
+    # 1. Кириллическая 'О' → латинская 'O'
+    # 2. Цифра '0' → латинская 'O'
+    name_normalized = (
+        name_upper
+        .replace('О', 'O')
+        .replace('0', 'O')
+    )
+    
     # ARES — A4, A6, A8 (латиница)
-    if (name_upper.startswith('A4') or 
-        name_upper.startswith('A6') or 
-        name_upper.startswith('A8')):
+    if (name_normalized.startswith('A4') or 
+        name_normalized.startswith('A6') or 
+        name_normalized.startswith('A8')):
         return 'ARES'
+    
+    # Теплотекс-APV — O34, OO34 (после нормализации: O034 → OO34)
+    if name_normalized.startswith('OO34') or name_normalized.startswith('O34'):
+        return 'Теплотекс-APV'
     
     return None
 
@@ -112,15 +126,13 @@ def get_special_brand_by_name(product_name):
 def get_brand_by_position(position, product_name=None):
     """
     Определяет бренд по:
-    1. Ключевому слову в названии (SIGMA, ARES) — приоритет.
+    1. Ключевому слову в названии (SIGMA, ARES, O34) — приоритет.
     2. Порядковому номеру позиции (для остальных).
     """
-    # Сначала проверяем ключевые слова
     special_brand = get_special_brand_by_name(product_name)
     if special_brand:
         return special_brand
     
-    # Если не найдено — по диапазону
     for brand_name, start, end in BRAND_RANGES:
         if start <= position <= end:
             return brand_name
@@ -136,7 +148,7 @@ BRAND_COLORS = {
     'Sondex':        '1a3c5e',  # тёмно-синий
     'Alfa-Laval':    'B71C1C',  # тёмно-красный
     'Tranter':       '4A148C',  # фиолетовый
-    'Funke':         '1B5E20',  # тёмно-зелёный
+    'Funke РоСВЕП':  '1B5E20',  # тёмно-зелёный
     'Kelvion':       'E65100',  # тёмно-оранжевый
     'Теплотекс-APV': '006064',  # тёмно-бирюзовый
     'SIGMA':         '6A1B9A',  # насыщенно-фиолетовый
@@ -148,7 +160,7 @@ BRAND_ORDER = {
     'Sondex':        1,
     'Alfa-Laval':    2,
     'Tranter':       3,
-    'Funke':         4,
+    'Funke РоСВЕП':  4,
     'Kelvion':       5,
     'Теплотекс-APV': 6,
     'SIGMA':         7,
@@ -888,7 +900,7 @@ def export_excel():
         
         all_products.append(item_dict)
     
-    # Сортируем все товары по sort_order (как в приложении)
+    # Сортируем все товары по sort_order
     all_products.sort(key=lambda x: (x['_sort_order'], x['id']))
     
     # ============================================================
@@ -897,7 +909,6 @@ def export_excel():
     brands_data = {}
     
     for idx, item_dict in enumerate(all_products, start=1):
-        # Определяем бренд: сначала по имени (SIGMA/ARES), потом по позиции
         brand_name = get_brand_by_position(idx, item_dict['name'])
         item_dict['_brand_name'] = brand_name
         
