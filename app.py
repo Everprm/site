@@ -93,6 +93,8 @@ def get_special_brand_by_name(product_name):
         return 'SIGMA'
     
     # УНИВЕРСАЛЬНАЯ НОРМАЛИЗАЦИЯ:
+    # 1. Кириллическая 'О' → латинская 'O'
+    # 2. Цифра '0' → латинская 'O'
     name_normalized = (
         name_upper
         .replace('О', 'O')
@@ -105,7 +107,7 @@ def get_special_brand_by_name(product_name):
         name_normalized.startswith('A8')):
         return 'ARES'
     
-    # Теплотекс-APV — O34, OO34
+    # Теплотекс-APV — O34, OO34 (после нормализации: O034 → OO34)
     if name_normalized.startswith('OO34') or name_normalized.startswith('O34'):
         return 'Теплотекс-APV'
     
@@ -913,11 +915,22 @@ def export_excel():
     ws = wb.active
     ws.title = "Остатки склада"
     
-    column_widths = {'A': 8, 'B': 60, 'C': 12, 'D': 15, 'E': 15, 'F': 15}
+    # Ширина колонок (G — новая для цены)
+    column_widths = {
+        'A': 8,   # № п/п
+        'B': 60,  # Наименование
+        'C': 12,  # Ед. изм.
+        'D': 15,  # Остаток
+        'E': 15,  # Резерв
+        'F': 15,  # Доступно
+        'G': 18,  # Цена, руб. ← НОВОЕ
+    }
     for col, width in column_widths.items():
         ws.column_dimensions[col].width = width
     
-    # ШАПКА
+    # ============================================================
+    # ШАПКА ОРГАНИЗАЦИИ
+    # ============================================================
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     static_dir = os.path.join(BASE_DIR, 'static')
     logo_path = os.path.join(static_dir, 'logo.png')
@@ -928,8 +941,11 @@ def export_excel():
             img.width = 900
             img.height = 115
             ws.add_image(img, 'A1')
+            print("✅ Логотип добавлен")
         except Exception as e:
             print(f"⚠️ Не удалось добавить логотип: {e}")
+    else:
+        print(f"⚠️ Логотип не найден: {logo_path}")
     
     ws.row_dimensions[1].height = 29
     ws.row_dimensions[2].height = 29
@@ -940,13 +956,16 @@ def export_excel():
     
     red_fill = PatternFill(start_color="E53935", end_color="E53935", fill_type="solid")
     blue_fill = PatternFill(start_color="1a3c5e", end_color="1a3c5e", fill_type="solid")
-    for col in range(1, 7):
+    # Цветные полосы на 7 колонок (A-G)
+    for col in range(1, 8):
         ws.cell(row=5, column=col).fill = red_fill
         ws.cell(row=6, column=col).fill = blue_fill
     
     ws.row_dimensions[7].height = 10
     
-    # ЗАГОЛОВКИ
+    # ============================================================
+    # ЗАГОЛОВКИ ТАБЛИЦЫ
+    # ============================================================
     HEADER_ROW = 8
     current_row = HEADER_ROW + 1
     
@@ -965,7 +984,8 @@ def export_excel():
         bottom=Side(style='thin')
     )
     
-    headers = ['№ п/п', 'Наименование позиции', 'Ед. изм.', 'Остаток, шт', 'Резерв, шт', 'Доступно, шт']
+    # Заголовки: 7 колонок
+    headers = ['№ п/п', 'Наименование позиции', 'Ед. изм.', 'Остаток, шт', 'Резерв, шт', 'Доступно, шт', 'Цена, руб.']
     
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=HEADER_ROW, column=col, value=header)
@@ -976,13 +996,16 @@ def export_excel():
     
     ws.row_dimensions[HEADER_ROW].height = 25
     
-    # ДАННЫЕ
+    # ============================================================
+    # ДАННЫЕ С ГРУППИРОВКОЙ
+    # ============================================================
     counter = 0
     brand_header_font = Font(bold=True, color="FFFFFF", size=12)
     brand_alignment = Alignment(horizontal="left", vertical="center", indent=1)
     
     for brand_name, products in sorted_brands:
-        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=6)
+        # ===== Заголовок блока (на 7 колонок) =====
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=7)
         
         brand_color = BRAND_COLORS.get(brand_name, '1a3c5e')
         brand_fill = PatternFill(start_color=brand_color, end_color=brand_color, fill_type="solid")
@@ -995,24 +1018,29 @@ def export_excel():
         ws.row_dimensions[current_row].height = 22
         current_row += 1
         
+        # ===== Товары блока =====
         for item in products:
             counter += 1
             
+            # A: № п/п
             cell = ws.cell(row=current_row, column=1, value=counter)
             cell.font = data_font
             cell.alignment = number_alignment
             cell.border = thin_border
             
+            # B: Наименование
             cell = ws.cell(row=current_row, column=2, value=item['name'])
             cell.font = data_font
             cell.alignment = data_alignment
             cell.border = thin_border
             
+            # C: Ед. изм.
             cell = ws.cell(row=current_row, column=3, value=item['unit'] or 'шт')
             cell.font = data_font
             cell.alignment = number_alignment
             cell.border = thin_border
             
+            # D: Остаток
             cell = ws.cell(row=current_row, column=4, value=item['balance'])
             cell.alignment = number_alignment
             cell.border = thin_border
@@ -1025,6 +1053,7 @@ def export_excel():
             else:
                 cell.font = Font(color="1B5E20", size=10)
             
+            # E: Резерв
             cell = ws.cell(row=current_row, column=5, value=item['reserved'])
             cell.alignment = number_alignment
             cell.border = thin_border
@@ -1034,19 +1063,31 @@ def export_excel():
             else:
                 cell.font = data_font
             
+            # F: Доступно
             cell = ws.cell(row=current_row, column=6, value=item['available'])
             cell.alignment = number_alignment
             cell.border = thin_border
             cell.font = Font(color="1B5E20", bold=True, size=10)
             
+            # G: Цена (ПУСТАЯ, только рамка)
+            cell = ws.cell(row=current_row, column=7, value=None)
+            cell.alignment = number_alignment
+            cell.border = thin_border
+            
             current_row += 1
         
+        # Пустая строка-разделитель
         ws.row_dimensions[current_row].height = 8
         current_row += 1
     
+    # ============================================================
+    # ЗАМОРОЗКА
+    # ============================================================
     ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
     
-    # СТАТИСТИКА
+    # ============================================================
+    # СТАТИСТИКА ВНИЗУ
+    # ============================================================
     last_row = current_row + 1
     
     total_items = len(data)
@@ -1063,7 +1104,9 @@ def export_excel():
     ws.cell(row=last_row + 4, column=2, value=f'Позиций в резерве: {reserved_items}').font = info_font
     ws.cell(row=last_row + 5, column=2, value=f'Выгрузил: {session.get("username")}').font = info_font
     
-    # СОХРАНЕНИЕ
+    # ============================================================
+    # СОХРАНЕНИЕ И ОТПРАВКА
+    # ============================================================
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
