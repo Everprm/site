@@ -240,7 +240,7 @@ def history():
             sm.quantity,
             sm.user,
             sm.comment,
-            to_char(sm.created_at + INTERVAL '5 hours', 'YYYY-MM-DD HH24:MI:SS') as created_at
+            to_char(sm.created_at + INTERVAL '2 hours', 'YYYY-MM-DD HH24:MI:SS') as created_at
         FROM stock_moves sm
         JOIN products p ON sm.product_id = p.id
         ORDER BY sm.created_at DESC
