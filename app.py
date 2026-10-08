@@ -225,6 +225,7 @@ def index():
 @app.route('/history')
 @login_required
 def history():
+    """Журнал движений. Доступен всем авторизованным пользователям."""
     username = session.get('username')
     
     if not username:
