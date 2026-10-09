@@ -350,7 +350,7 @@ def prices_page():
         if exists:
             try:
                 mtime = os.path.getmtime(filepath)
-                modified = datetime.fromtimestamp(mtime).strftime('%d.%m.%Y %H:%M')
+                modified = datetime.fromtimestamp(mtime).strftime('%d.%m.%Y')
             except:
                 pass
 

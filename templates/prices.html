@@ -296,7 +296,7 @@
             <div class="file-info">
                 {% if info.exists %}
                     <span class="status-badge status-ok">✅ Загружен</span>
-                    <br><b>Обновлён:</b> {{ info.modified }}
+                    <br><b>Обновлён:</b> {{ info.modified.split(' ')[0] }}
                 {% else %}
                     <span class="status-badge status-empty">❌ Не загружен</span>
                 {% endif %}
