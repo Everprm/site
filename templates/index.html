@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Склад: Учет остатков</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        html, body {
+        body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #f0f2f5;
             margin: 0;
-            padding: 0;
+            padding: 20px;
             color: #333;
             font-size: 14px;
         }
@@ -18,12 +19,10 @@
             max-width: 1500px;
             margin: 0 auto;
             background: white;
-            padding: 20px;
+            padding: 25px;
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
-
-        /* ============ ШАПКА ============ */
         .header {
             display: flex;
             justify-content: space-between;
@@ -32,29 +31,24 @@
             border-bottom: 2px solid #eee;
             padding-bottom: 15px;
             margin-bottom: 20px;
-            gap: 12px;
+            gap: 15px;
         }
-        .header h1 { margin: 0; color: #1a3c5e; font-size: 22px; }
-        .header-actions {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
+        .header h1 { margin: 0; color: #1a3c5e; font-size: 24px; }
+        .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .user-badge {
             background: #1a3c5e;
             color: white;
-            padding: 6px 14px;
+            padding: 6px 16px;
             border-radius: 20px;
             font-weight: bold;
-            font-size: 13px;
+            font-size: 14px;
         }
         .btn-nav {
-            padding: 8px 14px;
+            padding: 7px 16px;
             border-radius: 6px;
             text-decoration: none;
             font-weight: bold;
-            font-size: 13px;
+            font-size: 14px;
             color: white;
             transition: 0.2s;
             white-space: nowrap;
@@ -70,8 +64,9 @@
         .btn-reserves:hover { background: #e65100; }
         .btn-admin { background: #6a1b9a; }
         .btn-admin:hover { background: #4a148c; }
+        .btn-prices { background: #e65100; }
+        .btn-prices:hover { background: #bf360c; }
 
-        /* ============ ВКЛАДКИ ============ */
         .tabs {
             display: flex;
             gap: 5px;
@@ -96,10 +91,9 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        /* ============ ПОИСК ============ */
         #searchInput {
             width: 100%;
-            padding: 14px 18px;
+            padding: 14px 20px;
             font-size: 16px;
             border: 2px solid #ddd;
             border-radius: 8px;
@@ -112,7 +106,6 @@
             box-shadow: 0 0 0 3px rgba(26,60,94,0.1);
         }
 
-        /* ============ ТАБЛИЦА (ДЕСКТОП) ============ */
         table { width: 100%; border-collapse: collapse; }
         th {
             background: #1a3c5e;
@@ -143,7 +136,6 @@
         .has-reserve { background-color: #fffaf3; }
         .fully-reserved { background-color: #f5f5f5; }
 
-        /* ============ ДЕЙСТВИЯ ============ */
         .actions-cell {
             display: flex;
             flex-direction: column;
@@ -262,18 +254,10 @@
             opacity: 0.7;
         }
 
-        /* ============ СООБЩЕНИЯ ============ */
-        #message {
-            margin: 15px 0;
-            padding: 12px 20px;
-            border-radius: 8px;
-            display: none;
-            font-weight: 500;
-        }
+        #message { margin: 15px 0; padding: 12px 20px; border-radius: 8px; display: none; font-weight: 500; }
         .success { background: #e8f5e9; color: #1e5a1e; border-left: 4px solid #2e7d32; display: block !important; }
         .error { background: #ffebee; color: #a11f1f; border-left: 4px solid #d32f2f; display: block !important; }
 
-        /* ============ ФУТЕР ============ */
         .footer {
             margin-top: 25px;
             color: #999;
@@ -286,7 +270,6 @@
             gap: 10px;
         }
 
-        /* ============ ЛЕГЕНДА ============ */
         .legend {
             display: flex;
             gap: 20px;
@@ -298,80 +281,22 @@
         .legend-item { display: flex; align-items: center; gap: 6px; }
         .legend-color { width: 14px; height: 14px; border-radius: 3px; }
 
-        /* ============================================================
-           📱 МОБИЛЬНАЯ ВЕРСИЯ (экран меньше 768px)
-           ============================================================ */
+        /* Мобильная версия */
         @media (max-width: 768px) {
-            body {
-                padding: 0;
-                background: #f0f2f5;
-            }
-            .container {
-                padding: 12px;
-                border-radius: 0;
-                box-shadow: none;
-                min-height: 100vh;
-            }
+            body { padding: 0; }
+            .container { padding: 12px; border-radius: 0; box-shadow: none; min-height: 100vh; }
+            .header { flex-direction: column; align-items: stretch; gap: 10px; padding-bottom: 12px; margin-bottom: 15px; }
+            .header h1 { font-size: 20px; text-align: center; }
+            .header-actions { justify-content: center; gap: 6px; }
+            .user-badge { padding: 5px 12px; font-size: 12px; }
+            .btn-nav { padding: 7px 12px; font-size: 12px; }
+            .tabs { gap: 4px; margin-bottom: 15px; }
+            .tab-btn { flex: 1; padding: 12px 8px; font-size: 14px; text-align: center; }
+            #searchInput { padding: 14px 15px; font-size: 16px; }
+            .legend { gap: 10px; font-size: 12px; margin: 8px 0 12px 0; }
 
-            /* Шапка — вертикально */
-            .header {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 10px;
-                padding-bottom: 12px;
-                margin-bottom: 15px;
-            }
-            .header h1 {
-                font-size: 20px;
-                text-align: center;
-            }
-            .header-actions {
-                justify-content: center;
-                gap: 6px;
-            }
-            .user-badge {
-                padding: 5px 12px;
-                font-size: 12px;
-            }
-            .btn-nav {
-                padding: 7px 12px;
-                font-size: 12px;
-            }
-
-            /* Вкладки — крупные, во всю ширину */
-            .tabs {
-                gap: 4px;
-                margin-bottom: 15px;
-            }
-            .tab-btn {
-                flex: 1;
-                padding: 12px 8px;
-                font-size: 14px;
-                text-align: center;
-                border-radius: 8px 8px 0 0;
-            }
-
-            /* Поиск — крупный для пальца */
-            #searchInput {
-                padding: 14px 15px;
-                font-size: 16px;
-            }
-
-            /* Легенда — компактнее */
-            .legend {
-                gap: 10px;
-                font-size: 12px;
-                margin: 8px 0 12px 0;
-            }
-
-            /* ============================================
-               ТАБЛИЦА ПРЕВРАЩАЕТСЯ В КАРТОЧКИ
-               ============================================ */
-            table, thead, tbody, th, td, tr {
-                display: block;
-            }
-            thead { display: none; } /* Скрываем шапку таблицы */
-
+            table, thead, tbody, th, td, tr { display: block; }
+            thead { display: none; }
             tr {
                 background: #fff;
                 border: 1px solid #e0e0e0;
@@ -381,25 +306,10 @@
                 box-shadow: 0 2px 4px rgba(0,0,0,0.05);
                 position: relative;
             }
-            tr.has-reserve {
-                border-left: 4px solid #f57c00;
-                background: #fffaf3;
-            }
-            tr.low {
-                border-left: 4px solid #d32f2f;
-                background: #fff5f5;
-            }
-            tr.fully-reserved {
-                border-left: 4px solid #999;
-                background: #f5f5f5;
-            }
-
-            /* Скрываем колонки ID и Ед.изм. — они не нужны на телефоне */
-            td.id-col {
-                display: none;
-            }
-
-            /* Наименование — крупно, во всю ширину */
+            tr.has-reserve { border-left: 4px solid #f57c00; background: #fffaf3; }
+            tr.low { border-left: 4px solid #d32f2f; background: #fff5f5; }
+            tr.fully-reserved { border-left: 4px solid #999; background: #f5f5f5; }
+            td.id-col { display: none; }
             td.name-col {
                 font-size: 16px;
                 font-weight: 700;
@@ -409,11 +319,7 @@
                 border-bottom: 1px dashed #ddd;
                 padding-top: 0;
             }
-
-            /* Остаток, Резерв, Доступно — в 3 колонки */
-            td.balance,
-            td.reserved,
-            td.available {
+            td.balance, td.reserved, td.available {
                 display: inline-block;
                 width: 32%;
                 text-align: center;
@@ -424,110 +330,32 @@
                 border: 1px solid #eee;
                 padding-top: 8px;
             }
-            td.balance {
-                background: #f5f8fc;
-            }
-            td.balance::before {
-                content: 'Остаток';
-                display: block;
-                font-size: 11px;
-                color: #777;
-                font-weight: 400;
-                margin-bottom: 4px;
-            }
-            td.reserved {
-                background: #fffaf3;
-            }
-            td.reserved::before {
-                content: 'Резерв';
-                display: block;
-                font-size: 11px;
-                color: #777;
-                font-weight: 400;
-                margin-bottom: 4px;
-            }
-            td.available {
-                background: #f1f8e9;
-            }
-            td.available::before {
-                content: 'Доступно';
-                display: block;
-                font-size: 11px;
-                color: #777;
-                font-weight: 400;
-                margin-bottom: 4px;
-            }
-
-            /* Ячейка действий — на всю ширину */
-            td:last-child {
-                display: block;
-                width: 100%;
-                padding: 0;
-            }
-            .actions-cell {
-                min-width: 0;
-                gap: 8px;
-            }
-            .buttons-row {
-                flex-wrap: wrap;
-                gap: 8px;
-            }
-            .qty-input {
-                width: 70px;
-                padding: 10px 8px;
-                font-size: 16px;
-            }
-            .btn-action {
-                padding: 10px 16px;
-                font-size: 14px;
-                flex: 1;
-                min-width: 100px;
-            }
-            .btn-unreserve {
-                padding: 9px 14px;
-                font-size: 13px;
-            }
-            .receive-cell {
-                gap: 8px;
-            }
-            .btn-quick {
-                padding: 8px 12px;
-                font-size: 14px;
-                flex: 1;
-                min-width: 50px;
-            }
-            .comment-wrapper {
-                padding: 8px 12px;
-                gap: 8px;
-            }
-            .comment-label {
-                font-size: 16px;
-            }
-            .comment-input {
-                font-size: 14px;
-            }
-
-            /* Футер — вертикально */
-            .footer {
-                flex-direction: column;
-                gap: 5px;
-                text-align: center;
-                font-size: 12px;
-            }
+            td.balance { background: #f5f8fc; }
+            td.balance::before { content: 'Остаток'; display: block; font-size: 11px; color: #777; font-weight: 400; margin-bottom: 4px; }
+            td.reserved { background: #fffaf3; }
+            td.reserved::before { content: 'Резерв'; display: block; font-size: 11px; color: #777; font-weight: 400; margin-bottom: 4px; }
+            td.available { background: #f1f8e9; }
+            td.available::before { content: 'Доступно'; display: block; font-size: 11px; color: #777; font-weight: 400; margin-bottom: 4px; }
+            td:last-child { display: block; width: 100%; padding: 0; }
+            .actions-cell { min-width: 0; gap: 8px; }
+            .buttons-row { flex-wrap: wrap; gap: 8px; }
+            .qty-input { width: 70px; padding: 10px 8px; font-size: 16px; }
+            .btn-action { padding: 10px 16px; font-size: 14px; flex: 1; min-width: 100px; }
+            .btn-unreserve { padding: 9px 14px; font-size: 13px; }
+            .receive-cell { gap: 8px; }
+            .btn-quick { padding: 8px 12px; font-size: 14px; flex: 1; min-width: 50px; }
+            .comment-wrapper { padding: 8px 12px; gap: 8px; }
+            .comment-label { font-size: 16px; }
+            .comment-input { font-size: 14px; }
+            .footer { flex-direction: column; gap: 5px; text-align: center; font-size: 12px; }
         }
-
-        /* Очень узкие телефоны (меньше 400px) */
         @media (max-width: 400px) {
-            td.balance,
-            td.reserved,
-            td.available {
+            td.balance, td.reserved, td.available {
                 width: 100%;
                 text-align: left;
                 padding-left: 12px;
             }
-            td.balance::before,
-            td.reserved::before,
-            td.available::before {
+            td.balance::before, td.reserved::before, td.available::before {
                 display: inline-block;
                 width: 80px;
                 margin-bottom: 0;
@@ -541,6 +369,10 @@
         <h1>📦 Учет склада</h1>
         <div class="header-actions">
             <span class="user-badge">👤 {{ username }}</span>
+
+            {% if can_view_prices %}
+                <a href="/prices" class="btn-nav btn-prices">💰 Цены</a>
+            {% endif %}
 
             <a href="/reserves" class="btn-nav btn-reserves">📌 Резервы</a>
             <a href="/history" class="btn-nav btn-history">📜 Журнал</a>
@@ -687,7 +519,6 @@
                 const userCanReserve = canReserve && !isFullyBlocked;
                 const qtyDisabled = !userCanShip && !userCanReserve;
 
-                // Строка отгрузки
                 const shipRow = document.createElement('tr');
                 if (isFullyBlocked) {
                     shipRow.className = 'fully-reserved';
@@ -756,7 +587,6 @@
                 `;
                 shipTableBody.appendChild(shipRow);
 
-                // Строка пополнения
                 const receiveRow = document.createElement('tr');
                 receiveRow.innerHTML = `
                     <td class="id-col">${item.id}</td>

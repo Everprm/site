@@ -10,8 +10,13 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 msgspec==0.21.1
+numpy==2.5.3
 openpyxl==3.1.5
+pandas==3.0.6
 pillow==12.3.0
 psycopg2-binary==2.9.13
+python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
+six==1.17.0
+tzdata==2026.5
 Werkzeug==3.1.8

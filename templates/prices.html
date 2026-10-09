@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💰 Цены</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1500px;
+            margin: 0 auto;
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            gap: 15px;
+        }
+        .header h1 { margin: 0; color: #1a3c5e; }
+        .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .user-badge {
+            background: #1a3c5e;
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .btn-nav {
+            padding: 7px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 14px;
+            color: white;
+            transition: 0.2s;
+        }
+        .btn-back { background: #777; }
+        .btn-back:hover { background: #555; }
+        .btn-logout { background: #d32f2f; }
+        .btn-logout:hover { background: #b71c1c; }
+
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+            flex-wrap: wrap;
+        }
+        .tab-btn {
+            padding: 12px 25px;
+            border: none;
+            background: #e9ecef;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            border-radius: 8px 8px 0 0;
+            transition: 0.2s;
+            color: #555;
+        }
+        .tab-btn.active { background: #1a3c5e; color: white; }
+        .tab-btn:hover:not(.active) { background: #dee2e6; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f5f8fc;
+            border-radius: 10px;
+            border-left: 4px solid #1a3c5e;
+        }
+        .file-info {
+            font-size: 14px;
+            color: #555;
+        }
+        .file-info b { color: #1a3c5e; }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 6px;
+        }
+        .status-ok { background: #c8e6c9; color: #1e5a1e; }
+        .status-empty { background: #ffcdd2; color: #a11f1f; }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            white-space: nowrap;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-upload { background: #2e7d32; color: white; }
+        .btn-upload:hover { background: #1b5e20; }
+        .btn-download { background: #e65100; color: white; }
+        .btn-download:hover { background: #bf360c; }
+        .btn-delete { background: #fff; color: #d32f2f; border: 2px solid #d32f2f; }
+        .btn-delete:hover { background: #d32f2f; color: white; }
+        .btn-refresh { background: #4a7fb5; color: white; }
+        .btn-refresh:hover { background: #1a3c5e; }
+
+        .match-summary {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 12px 0;
+            padding: 12px 18px;
+            background: #f5f8fc;
+            border-radius: 8px;
+            border-left: 4px solid #4a7fb5;
+            font-size: 13px;
+        }
+        .match-summary .stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #555;
+        }
+        .match-summary .stat b {
+            color: #1a3c5e;
+            font-size: 15px;
+        }
+        .match-summary .stat.warn b {
+            color: #e65100;
+        }
+        .match-summary .stat.err b {
+            color: #d32f2f;
+        }
+
+        .excel-wrapper {
+            overflow: auto;
+            max-height: 70vh;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+        }
+        .excel-table {
+            border-collapse: collapse;
+            font-size: 13px;
+            white-space: nowrap;
+            min-width: 100%;
+        }
+        .excel-table th {
+            background: #1a3c5e;
+            color: white;
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            border-right: 1px solid #2a5f7a;
+        }
+        .excel-table td {
+            padding: 6px 12px;
+            border-bottom: 1px solid #eee;
+            border-right: 1px solid #f0f0f0;
+            color: #333;
+        }
+        .excel-table tr:nth-child(even) td {
+            background: #fafbfc;
+        }
+        .excel-table tr:hover td {
+            background: #f5f8fc;
+        }
+
+        .col-num { text-align: center; }
+        .col-price { text-align: right; font-weight: 600; }
+        .cell-zero {
+            background: #ffcdd2 !important;
+            color: #b71c1c !important;
+            font-weight: 700;
+        }
+        .cell-low {
+            background: #fff3e0 !important;
+            color: #e65100 !important;
+            font-weight: 700;
+        }
+        .cell-unmatched {
+            background: #eceff1 !important;
+            color: #90a4ae !important;
+            font-style: italic;
+        }
+        .cell-price {
+            background: #e8f5e9;
+            color: #1b5e20;
+            font-weight: 700;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        .empty-state .icon { font-size: 64px; margin-bottom: 15px; }
+        .empty-state h3 { color: #555; margin: 10px 0; }
+        .empty-state p { font-size: 14px; }
+
+        #message {
+            margin: 15px 0;
+            padding: 12px 20px;
+            border-radius: 8px;
+            display: none;
+            font-weight: 500;
+        }
+        .success { background: #e8f5e9; color: #1e5a1e; border-left: 4px solid #2e7d32; display: block !important; }
+        .error { background: #ffebee; color: #a11f1f; border-left: 4px solid #d32f2f; display: block !important; }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 16px;
+        }
+
+        input[type="file"] { display: none; }
+
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 15px; border-radius: 0; }
+            .header { flex-direction: column; align-items: stretch; }
+            .header h1 { font-size: 20px; text-align: center; }
+            .header-actions { justify-content: center; }
+            .tab-btn { padding: 10px 15px; font-size: 13px; flex: 1; text-align: center; }
+            .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+            .btn { width: 100%; padding: 12px; font-size: 14px; text-align: center; }
+            .excel-table { font-size: 12px; }
+            .excel-table th, .excel-table td { padding: 6px 8px; }
+            .match-summary { gap: 10px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>💰 Цены</h1>
+        <div class="header-actions">
+            <span class="user-badge">👤 {{ username }}</span>
+            <a href="/" class="btn-nav btn-back">⬅ Назад к складу</a>
+            <a href="/logout" class="btn-nav btn-logout">🚪 Выйти</a>
+        </div>
+    </div>
+
+    <div id="message"></div>
+
+    <div class="tabs">
+        {% for key, name in files_status.items() %}
+            <button class="tab-btn {% if loop.first %}active{% endif %}" data-tab="{{ key }}">{{ name.name }}</button>
+        {% endfor %}
+    </div>
+
+    {% for key, info in files_status.items() %}
+    <div class="tab-content {% if loop.first %}active{% endif %}" id="tab_{{ key }}">
+        <div class="toolbar">
+            <div class="file-info">
+                <b>Файл:</b> {{ info.filename }}
+                {% if info.exists %}
+                    <span class="status-badge status-ok">✅ Загружен</span>
+                    <br><b>Обновлён:</b> {{ info.modified }}
+                {% else %}
+                    <span class="status-badge status-empty">❌ Не загружен</span>
+                {% endif %}
+            </div>
+
+            {% if can_manage %}
+                <label class="btn btn-upload">
+                    📤 Загрузить Excel
+                    <input type="file" accept=".xlsx,.xls" onchange="uploadFile('{{ key }}', this)">
+                </label>
+            {% endif %}
+
+            <button class="btn btn-refresh" onclick="loadData('{{ key }}')">🔄 Обновить</button>
+
+            {% if info.exists %}
+                <a href="/api/prices/download/{{ key }}" class="btn btn-download">
+                    📥 Скачать с остатками
+                </a>
+            {% endif %}
+
+            {% if can_manage and info.exists %}
+                <button class="btn btn-delete" onclick="deleteFile('{{ key }}')">🗑️ Удалить</button>
+            {% endif %}
+        </div>
+
+        <div class="excel-wrapper" id="wrapper_{{ key }}">
+            <div class="loading">Загрузка данных...</div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+    const CAN_MANAGE = {{ 'true' if can_manage else 'false' }};
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById('tab_' + this.dataset.tab).classList.add('active');
+        });
+    });
+
+    async function loadData(tabKey) {
+        const wrapper = document.getElementById('wrapper_' + tabKey);
+        wrapper.innerHTML = '<div class="loading">Загрузка данных...</div>';
+
+        try {
+            const resp = await fetch('/api/prices/data/' + tabKey);
+            const data = await resp.json();
+
+            if (!data.exists) {
+                wrapper.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📂</div>
+                        <h3>Файл не загружен</h3>
+                        <p>${CAN_MANAGE ? 'Нажмите «Загрузить Excel», чтобы добавить файл' : 'Попросите администратора загрузить файл'}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (!data.rows || data.rows.length <= 1) {
+                wrapper.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📊</div>
+                        <h3>Нет данных в файле</h3>
+                        <p>Загрузите Excel с ценами</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const stats = data.match_stats || {};
+            const unmatchedCount = stats.unmatched_count || 0;
+
+            let summaryHtml = `
+                <div class="match-summary">
+                    <div class="stat">📦 Позиций в БД: <b>${stats.total_in_db || 0}</b></div>
+                    <div class="stat">📄 Позиций в Excel: <b>${stats.total_in_excel || 0}</b></div>
+                    <div class="stat">🎯 По ID: <b>${stats.matched_by_id || 0}</b></div>
+                    <div class="stat">🔤 По имени: <b>${stats.matched_by_name || 0}</b></div>
+                    <div class="stat ${unmatchedCount > 0 ? 'err' : ''}">⚠️ Не найдено в БД: <b>${unmatchedCount}</b></div>
+                </div>
+            `;
+
+            let html = summaryHtml + '<table class="excel-table">';
+
+            const headers = data.rows[0];
+            html += '<thead><tr>';
+            headers.forEach((h, idx) => {
+                let cls = '';
+                if (idx >= 3 && idx <= 5) cls = 'col-num';
+                if (idx === 6) cls = 'col-price';
+                html += `<th class="${cls}">${escapeHtml(h)}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            for (let i = 1; i < data.rows.length; i++) {
+                const row = data.rows[i];
+                html += '<tr>';
+                row.forEach((cell, idx) => {
+                    let cls = '';
+                    if (idx >= 3 && idx <= 5) cls = 'col-num';
+                    if (idx === 6) cls = 'col-price';
+
+                    if (typeof cell === 'number') {
+                        if (idx === 3) {
+                            if (cell <= 0) cls += ' cell-zero';
+                            else if (cell < 5) cls += ' cell-low';
+                        } else if (idx === 5) {
+                            if (cell <= 0) cls += ' cell-zero';
+                        } else if (idx === 6) {
+                            cls += ' cell-price';
+                        }
+                    }
+                    if (cell === '—') cls += ' cell-unmatched';
+
+                    let content = escapeHtml(cell);
+                    if (idx === 6 && typeof cell === 'number') {
+                        content = formatPrice(cell);
+                    }
+
+                    html += `<td class="${cls}">${content}</td>`;
+                });
+                html += '</tr>';
+            }
+
+            html += '</tbody></table>';
+            wrapper.innerHTML = html;
+
+        } catch (e) {
+            wrapper.innerHTML = `<div class="empty-state"><div class="icon">❌</div><h3>Ошибка загрузки</h3></div>`;
+            console.error(e);
+        }
+    }
+
+    function formatPrice(num) {
+        if (num === null || num === undefined || num === '') return '—';
+        return Number(num).toLocaleString('ru-RU', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+        });
+    }
+
+    async function uploadFile(tabKey, input) {
+        if (!input.files || !input.files[0]) return;
+
+        const file = input.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('tab', tabKey);
+
+        const label = input.closest('label');
+        label.style.pointerEvents = 'none';
+        label.style.opacity = '0.5';
+
+        try {
+            const resp = await fetch('/api/prices/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await resp.json();
+
+            if (result.status === 'OK') {
+                showMessage('✅ ' + result.message, 'success');
+                loadData(tabKey);
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showMessage('❌ ' + (result.error || 'Ошибка загрузки'), 'error');
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка соединения', 'error');
+        } finally {
+            label.style.pointerEvents = '';
+            label.style.opacity = '';
+            input.value = '';
+        }
+    }
+
+    async function deleteFile(tabKey) {
+        if (!confirm('Удалить файл цен этой вкладки?')) return;
+
+        try {
+            const resp = await fetch('/api/prices/delete/' + tabKey, { method: 'POST' });
+            const result = await resp.json();
+
+            if (result.status === 'OK') {
+                showMessage('🗑️ ' + result.message, 'success');
+                setTimeout(() => location.reload(), 800);
+            } else {
+                showMessage('❌ ' + (result.error || 'Ошибка удаления'), 'error');
+            }
+        } catch (e) {
+            showMessage('❌ Ошибка соединения', 'error');
+        }
+    }
+
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+
+    function showMessage(text, type) {
+        const msgDiv = document.getElementById('message');
+        msgDiv.textContent = text;
+        msgDiv.className = type;
+        clearTimeout(msgDiv._timer);
+        msgDiv._timer = setTimeout(() => { msgDiv.className = ''; msgDiv.textContent = ''; }, 4000);
+    }
+
+    window.onload = function() {
+        const firstTab = document.querySelector('.tab-btn');
+        if (firstTab) {
+            loadData(firstTab.dataset.tab);
+        }
+    };
+</script>
+</body>
+</html>
