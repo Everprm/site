@@ -61,7 +61,7 @@ ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
 # ПЕРМСКОЕ ВРЕМЯ (UTC+5)
 # ============================================================
 def get_perm_time():
-    return datetime.utcnow() + timedelta(hours=5)
+    return datetime.utcnow() + timedelta(hours=2)
 
 
 # ============================================================
