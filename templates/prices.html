@@ -23,6 +23,7 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
 
+        /* Шапка */
         .header {
             display: flex;
             justify-content: space-between;
@@ -57,6 +58,7 @@
         .btn-logout { background: #d32f2f; }
         .btn-logout:hover { background: #b71c1c; }
 
+        /* Вкладки */
         .tabs {
             display: flex;
             gap: 5px;
@@ -81,6 +83,7 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
+        /* Панель инструментов */
         .toolbar {
             display: flex;
             gap: 12px;
@@ -103,11 +106,11 @@
             border-radius: 12px;
             font-size: 12px;
             font-weight: bold;
-            margin-left: 6px;
         }
         .status-ok { background: #c8e6c9; color: #1e5a1e; }
         .status-empty { background: #ffcdd2; color: #a11f1f; }
 
+        /* Кнопки */
         .btn {
             padding: 8px 16px;
             border: none;
@@ -129,6 +132,7 @@
         .btn-refresh { background: #4a7fb5; color: white; }
         .btn-refresh:hover { background: #1a3c5e; }
 
+        /* Сводка */
         .match-summary {
             display: flex;
             gap: 16px;
@@ -157,6 +161,7 @@
             color: #d32f2f;
         }
 
+        /* Таблица */
         .excel-wrapper {
             overflow: auto;
             max-height: 70vh;
@@ -194,6 +199,7 @@
             background: #f5f8fc;
         }
 
+        /* Числовые колонки */
         .col-num { text-align: center; }
         .col-price { text-align: right; font-weight: 600; }
         .cell-zero {
@@ -217,6 +223,7 @@
             font-weight: 700;
         }
 
+        /* Пустое состояние */
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -226,6 +233,7 @@
         .empty-state h3 { color: #555; margin: 10px 0; }
         .empty-state p { font-size: 14px; }
 
+        /* Сообщение */
         #message {
             margin: 15px 0;
             padding: 12px 20px;
@@ -236,6 +244,7 @@
         .success { background: #e8f5e9; color: #1e5a1e; border-left: 4px solid #2e7d32; display: block !important; }
         .error { background: #ffebee; color: #a11f1f; border-left: 4px solid #d32f2f; display: block !important; }
 
+        /* Загрузка */
         .loading {
             text-align: center;
             padding: 40px;
@@ -243,8 +252,10 @@
             font-size: 16px;
         }
 
+        /* Скрытый input */
         input[type="file"] { display: none; }
 
+        /* Адаптив */
         @media (max-width: 768px) {
             body { padding: 10px; }
             .container { padding: 15px; border-radius: 0; }
@@ -283,7 +294,6 @@
     <div class="tab-content {% if loop.first %}active{% endif %}" id="tab_{{ key }}">
         <div class="toolbar">
             <div class="file-info">
-                <b>Файл:</b> {{ info.filename }}
                 {% if info.exists %}
                     <span class="status-badge status-ok">✅ Загружен</span>
                     <br><b>Обновлён:</b> {{ info.modified }}

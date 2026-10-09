@@ -675,6 +675,10 @@ def prices_download(tab_key):
     """
     Генерирует Excel в том же стиле, что и /export_excel.
     Доступ — только для CAN_VIEW_PRICES.
+
+    Особенности:
+    - Цена в формате "255,15 руб." и выровнена по центру.
+    - Остатки берутся из БД, а не из Excel.
     """
     if tab_key not in PRICE_TABS:
         return jsonify({'error': 'Неверная вкладка'}), 400
@@ -806,7 +810,9 @@ def prices_download(tab_key):
     data_font = Font(size=10)
     data_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     number_alignment = Alignment(horizontal="center", vertical="center")
-    price_alignment = Alignment(horizontal="right", vertical="center")
+
+    # Цена — по центру
+    price_alignment = Alignment(horizontal="center", vertical="center")
 
     thin_border = Border(
         left=Side(style='thin'),
@@ -870,6 +876,7 @@ def prices_download(tab_key):
             cell.alignment = number_alignment
             cell.border = thin_border
 
+            # --- Остаток ---
             if prod['balance'] is not None:
                 cell = ws.cell(row=current_row, column=4, value=prod['balance'])
                 cell.alignment = number_alignment
@@ -889,6 +896,7 @@ def prices_download(tab_key):
                 cell.border = thin_border
                 cell.fill = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
 
+            # --- Резерв ---
             if prod['reserved'] is not None:
                 cell = ws.cell(row=current_row, column=5, value=prod['reserved'])
                 cell.alignment = number_alignment
@@ -905,6 +913,7 @@ def prices_download(tab_key):
                 cell.border = thin_border
                 cell.fill = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
 
+            # --- Доступно ---
             if prod['available'] is not None:
                 cell = ws.cell(row=current_row, column=6, value=prod['available'])
                 cell.alignment = number_alignment
@@ -920,11 +929,12 @@ def prices_download(tab_key):
                 cell.border = thin_border
                 cell.fill = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
 
+            # --- Цена: формат "руб." и по центру ---
             if prod['price'] is not None:
                 cell = ws.cell(row=current_row, column=7, value=prod['price'])
                 cell.alignment = price_alignment
                 cell.border = thin_border
-                cell.number_format = '#,##0.00'
+                cell.number_format = '#,##0.00" руб."'
                 cell.font = Font(color="1B5E20", bold=True, size=10)
                 cell.fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
             else:
