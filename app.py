@@ -12,7 +12,6 @@ from openpyxl.drawing.image import Image as XLImage
 from functools import wraps
 from dotenv import load_dotenv
 
-# Загружаем переменные из .env
 load_dotenv()
 
 app = Flask(__name__)
@@ -30,16 +29,12 @@ if not SECRET_KEY:
 app.secret_key = SECRET_KEY
 app.permanent_session_lifetime = timedelta(hours=8)
 
-# ============================================================
-# ПОДКЛЮЧЕНИЕ К БД
-# ============================================================
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise ValueError(
         "❌ Переменная окружения DATABASE_URL не задана!\n"
         "   Добавьте её в файл .env (локально) или в переменные окружения App Platform (на хостинге)."
     )
-
 
 # ============================================================
 # ЦЕНЫ — КОНФИГУРАЦИЯ
@@ -57,16 +52,10 @@ PRICE_TABS = {
 ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
 
 
-# ============================================================
-# ПЕРМСКОЕ ВРЕМЯ (UTC+2)
-# ============================================================
 def get_perm_time():
-    return datetime.utcnow() + timedelta(hours=2)
+    return datetime.utcnow() + timedelta(hours=5)
 
 
-# ============================================================
-# БАЗА ДАННЫХ
-# ============================================================
 def get_db():
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
@@ -136,7 +125,6 @@ BRAND_ORDER = {
     'Прочее':        9,
 }
 
-
 # ============================================================
 # НОРМАЛИЗАЦИЯ ИМЁН
 # ============================================================
@@ -155,8 +143,10 @@ def normalize_product_name(name):
     s = str(name).strip().upper()
     for cyr, lat in _CYRILLIC_TO_LATIN.items():
         s = s.replace(cyr, lat)
+    s = s.replace('Ё', 'Е')
     s = re.sub(r'[«»"\'`.,;:!?()\[\]{}]', ' ', s)
     s = re.sub(r'[—–\-_/\\]', ' ', s)
+    s = re.sub(r'ММ', 'MM', s)
     s = ' '.join(s.split())
     return s
 
@@ -199,24 +189,17 @@ def role_required(allowed_roles):
 
 
 def prices_access_required(f):
-    """
-    Декоратор для страниц/API цен.
-    Для API возвращает JSON 403, для страниц — HTML access_denied.html.
-    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         username = session.get('username')
-
         if not username:
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Требуется авторизация'}), 401
             return redirect(url_for('login_page'))
-
         if not can_view_prices(username):
             if request.path.startswith('/api/'):
                 return jsonify({'error': '❌ Доступ к ценам запрещён'}), 403
             return render_template('access_denied.html'), 403
-
         return f(*args, **kwargs)
     return decorated_function
 
@@ -229,10 +212,7 @@ CAN_RESERVE_USERS = ['Павел', 'Евгений', 'Виталий', 'Андр
 CAN_RECEIVE_USERS = ['Павел', 'Валерий', 'Андрей']
 CAN_EXPORT_EXCEL = ['Павел', 'Андрей', 'Евгений', 'Виталий']
 
-# Кто видит цены (все, кроме Валерия)
 CAN_VIEW_PRICES = ['Павел', 'Андрей', 'Евгений', 'Виталий']
-
-# Кто может загружать/удалять файлы цен
 CAN_MANAGE_PRICES = ['Павел', 'Андрей']
 
 
@@ -298,7 +278,7 @@ def history():
             sm.quantity,
             sm.user,
             sm.comment,
-            to_char(sm.created_at + INTERVAL '2 hours', 'YYYY-MM-DD HH24:MI:SS') as created_at
+            to_char(sm.created_at + INTERVAL '5 hours', 'YYYY-MM-DD HH24:MI:SS') as created_at
         FROM stock_moves sm
         JOIN products p ON sm.product_id = p.id
         ORDER BY sm.created_at DESC
@@ -373,13 +353,6 @@ def prices_page():
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ЦЕН
 # ============================================================
 def load_prices_from_excel(tab_key):
-    """
-    Читает Excel с ценами.
-    Возвращает:
-      - header_row: список заголовков
-      - data_rows: список dict-строк {id, name, unit, price, raw}
-      - col_indexes: dict {id, name, unit, price}
-    """
     filepath = os.path.join(PRICES_DIR, f"{tab_key}.xlsx")
     if not os.path.exists(filepath):
         return None, None, None
@@ -397,7 +370,6 @@ def load_prices_from_excel(tab_key):
     if not raw_rows:
         return None, [], None
 
-    # Ищем заголовок
     header_idx = 0
     col_indexes = {'id': 0, 'name': None, 'unit': None, 'price': None}
 
@@ -416,7 +388,6 @@ def load_prices_from_excel(tab_key):
         if has_name:
             break
 
-    # Дефолты
     if col_indexes['name'] is None:
         col_indexes['name'] = 1
         col_indexes['unit'] = 2
@@ -436,13 +407,11 @@ def load_prices_from_excel(tab_key):
         if not name_str:
             continue
 
-        # Пропускаем заголовки брендов и служебные строки
         if re.search(r'\(\d+\s*позиц', name_str, re.IGNORECASE):
             continue
         if name_str.startswith(('Всего', 'Дата', 'Позиций', 'Выгрузил')):
             continue
 
-        # Цена
         price_val = None
         if col_indexes['price'] is not None and len(row) > col_indexes['price']:
             p = row[col_indexes['price']]
@@ -454,7 +423,6 @@ def load_prices_from_excel(tab_key):
                 except (ValueError, TypeError):
                     price_val = None
 
-        # Ед. изм.
         unit_val = ''
         if col_indexes['unit'] is not None and len(row) > col_indexes['unit']:
             u = row[col_indexes['unit']]
@@ -472,11 +440,6 @@ def load_prices_from_excel(tab_key):
 
 
 def get_db_balances():
-    """
-    Возвращает:
-      by_id: {product_id: {id, name, unit, balance, reserved, available, sort_order}}
-      by_name: {normalized_name: {...}}
-    """
     conn = get_db()
     cur = conn.cursor()
     cur.execute('''
@@ -502,6 +465,7 @@ def get_db_balances():
 
     by_id = {}
     by_name = {}
+
     for r in rows:
         item = dict(r)
         item['available'] = item['balance'] - item['reserved']
@@ -509,8 +473,20 @@ def get_db_balances():
             item['_sort_order'] = float(item['sort_order']) if item['sort_order'] is not None else 0
         except (ValueError, TypeError):
             item['_sort_order'] = 0
+
         by_id[item['id']] = item
-        by_name[normalize_product_name(item['name'])] = item
+
+        norm = normalize_product_name(item['name'])
+
+        if norm in by_name:
+            existing = by_name[norm]
+            existing['balance'] += item['balance']
+            existing['reserved'] += item['reserved']
+            existing['available'] = existing['balance'] - existing['reserved']
+            if item['_sort_order'] < existing['_sort_order']:
+                existing['_sort_order'] = item['_sort_order']
+        else:
+            by_name[norm] = item
 
     return by_id, by_name
 
@@ -559,11 +535,6 @@ def prices_upload():
 @login_required
 @prices_access_required
 def prices_data(tab_key):
-    """
-    Возвращает таблицу:
-    - наименование, ед. изм., цена — из Excel
-    - остаток, резерв, доступно — из БД
-    """
     if tab_key not in PRICE_TABS:
         return jsonify({'error': 'Неверная вкладка'}), 400
 
@@ -581,7 +552,6 @@ def prices_data(tab_key):
         ['№ п/п', 'Наименование позиции', 'Ед. изм.', 'Остаток, шт', 'Резерв, шт', 'Доступно, шт', 'Цена, руб.']
     ]
 
-    matched_by_id = 0
     matched_by_name = 0
     unmatched = []
     counter = 0
@@ -589,14 +559,10 @@ def prices_data(tab_key):
     for ex in excel_rows:
         db_item = None
 
-        if ex['id'] and ex['id'] in db_by_id:
-            db_item = db_by_id[ex['id']]
-            matched_by_id += 1
-        else:
-            norm = normalize_product_name(ex['name'])
-            if norm in db_by_name:
-                db_item = db_by_name[norm]
-                matched_by_name += 1
+        norm = normalize_product_name(ex['name'])
+        if norm in db_by_name:
+            db_item = db_by_name[norm]
+            matched_by_name += 1
 
         counter += 1
 
@@ -632,7 +598,7 @@ def prices_data(tab_key):
         'match_stats': {
             'total_in_db': len(db_by_id),
             'total_in_excel': len(excel_rows),
-            'matched_by_id': matched_by_id,
+            'matched_by_id': 0,
             'matched_by_name': matched_by_name,
             'unmatched_count': len(unmatched),
         },
@@ -668,17 +634,49 @@ def prices_delete(tab_key):
     })
 
 
+@app.route('/api/prices/diagnostics/<tab_key>')
+@login_required
+@prices_access_required
+def prices_diagnostics(tab_key):
+    if tab_key not in PRICE_TABS:
+        return jsonify({'error': 'Неверная вкладка'}), 400
+
+    filepath = os.path.join(PRICES_DIR, f"{tab_key}.xlsx")
+    if not os.path.exists(filepath):
+        return jsonify({'exists': False})
+
+    header_row, excel_rows, col_indexes = load_prices_from_excel(tab_key)
+    if header_row is None:
+        return jsonify({'error': 'Не удалось прочитать файл'}), 500
+
+    db_by_id, db_by_name = get_db_balances()
+
+    unmatched = []
+    for ex in excel_rows:
+        norm = normalize_product_name(ex['name'])
+        if norm not in db_by_name:
+            unmatched.append({
+                'excel_name': ex['name'],
+                'excel_norm': norm,
+            })
+
+    return jsonify({
+        'excel_count': len(excel_rows),
+        'db_count': len(db_by_id),
+        'unmatched_count': len(unmatched),
+        'unmatched': unmatched,
+    })
+
+
 @app.route('/api/prices/download/<tab_key>')
 @login_required
 @prices_access_required
 def prices_download(tab_key):
     """
-    Генерирует Excel в том же стиле, что и /export_excel.
-    Доступ — только для CAN_VIEW_PRICES.
-
-    Особенности:
-    - Цена в формате "255,15 руб." и выровнена по центру.
-    - Остатки берутся из БД, а не из Excel.
+    Генерирует Excel в стиле /export_excel.
+    Сопоставление с БД — по имени.
+    Бренд определяется по ПОРЯДКОВОМУ НОМЕРУ позиции в Excel (1, 2, 3, ...),
+    ровно как в /export_excel — чтобы не сбивался порядок.
     """
     if tab_key not in PRICE_TABS:
         return jsonify({'error': 'Неверная вкладка'}), 400
@@ -694,26 +692,18 @@ def prices_download(tab_key):
     db_by_id, db_by_name = get_db_balances()
     username = session.get('username')
 
-    # ---------- 1. Обогащаем строки Excel данными из БД ----------
+    # ---------- 1. Обогащаем строки Excel данными из БД (по имени) ----------
     enriched_products = []
-    matched_by_id = 0
     matched_by_name = 0
     unmatched_names = []
 
     for ex in excel_rows:
         db_item = None
-        match_type = None
 
-        if ex['id'] and ex['id'] in db_by_id:
-            db_item = db_by_id[ex['id']]
-            match_type = 'id'
-            matched_by_id += 1
-        else:
-            norm = normalize_product_name(ex['name'])
-            if norm in db_by_name:
-                db_item = db_by_name[norm]
-                match_type = 'name'
-                matched_by_name += 1
+        norm = normalize_product_name(ex['name'])
+        if norm in db_by_name:
+            db_item = db_by_name[norm]
+            matched_by_name += 1
 
         if db_item:
             enriched_products.append({
@@ -724,35 +714,26 @@ def prices_download(tab_key):
                 'reserved': db_item['reserved'],
                 'available': db_item['available'],
                 'price': ex['price'],
-                'sort_order': db_item.get('_sort_order', 0),
                 'matched': True,
-                'match_type': match_type,
             })
         else:
             unmatched_names.append(ex['name'])
             enriched_products.append({
-                'id': ex['id'] or 0,
+                'id': 0,
                 'name': ex['name'],
                 'unit': ex['unit'] or 'шт',
                 'balance': None,
                 'reserved': None,
                 'available': None,
                 'price': ex['price'],
-                'sort_order': 999999,
                 'matched': False,
-                'match_type': None,
             })
 
-    # ---------- 2. Сортируем по sort_order из БД ----------
-    enriched_products.sort(key=lambda p: (p['sort_order'], p['id']))
-
-    # ---------- 3. Группируем по брендам ----------
+    # ---------- 2. НЕ пересортируем. Порядок = порядок Excel.
+    # Группируем по бренду на основе позиции в Excel (1, 2, 3, ...).
     brands_data = {}
-    for prod in enriched_products:
-        if prod['matched']:
-            brand_name = get_brand_by_position(prod['id'], prod['name'])
-        else:
-            brand_name = 'Прочее'
+    for idx, prod in enumerate(enriched_products, start=1):
+        brand_name = get_brand_by_position(idx, prod['name'])
 
         if brand_name not in brands_data:
             brands_data[brand_name] = []
@@ -760,7 +741,7 @@ def prices_download(tab_key):
 
     sorted_brands = sorted(brands_data.items(), key=lambda x: BRAND_ORDER.get(x[0], 99))
 
-    # ---------- 4. Создаём Excel ----------
+    # ---------- 3. Создаём Excel ----------
     wb = Workbook()
     ws = wb.active
     ws.title = PRICE_TABS[tab_key][:30]
@@ -810,8 +791,6 @@ def prices_download(tab_key):
     data_font = Font(size=10)
     data_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     number_alignment = Alignment(horizontal="center", vertical="center")
-
-    # Цена — по центру
     price_alignment = Alignment(horizontal="center", vertical="center")
 
     thin_border = Border(
@@ -876,7 +855,6 @@ def prices_download(tab_key):
             cell.alignment = number_alignment
             cell.border = thin_border
 
-            # --- Остаток ---
             if prod['balance'] is not None:
                 cell = ws.cell(row=current_row, column=4, value=prod['balance'])
                 cell.alignment = number_alignment
@@ -896,7 +874,6 @@ def prices_download(tab_key):
                 cell.border = thin_border
                 cell.fill = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
 
-            # --- Резерв ---
             if prod['reserved'] is not None:
                 cell = ws.cell(row=current_row, column=5, value=prod['reserved'])
                 cell.alignment = number_alignment
@@ -913,7 +890,6 @@ def prices_download(tab_key):
                 cell.border = thin_border
                 cell.fill = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
 
-            # --- Доступно ---
             if prod['available'] is not None:
                 cell = ws.cell(row=current_row, column=6, value=prod['available'])
                 cell.alignment = number_alignment
@@ -929,7 +905,6 @@ def prices_download(tab_key):
                 cell.border = thin_border
                 cell.fill = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
 
-            # --- Цена: формат "руб." и по центру ---
             if prod['price'] is not None:
                 cell = ws.cell(row=current_row, column=7, value=prod['price'])
                 cell.alignment = price_alignment
@@ -973,7 +948,7 @@ def prices_download(tab_key):
     ws.cell(row=last_row + 5, column=2,
             value=f'Позиций в резерве: {reserved_items}').font = info_font
     ws.cell(row=last_row + 6, column=2,
-            value=f'Сопоставлено с БД: по ID — {matched_by_id}, по имени — {matched_by_name}').font = info_font
+            value=f'Сопоставлено с БД по имени: {matched_by_name}').font = info_font
 
     if unmatched_names:
         ws.cell(row=last_row + 7, column=2,
@@ -1558,7 +1533,7 @@ def get_reserves():
 
 
 # ============================================================
-# ЭКСПОРТ В EXCEL (главный склад)
+# ЭКСПОРТ В EXCEL (главный склад) — без изменений
 # ============================================================
 @app.route('/export_excel')
 @login_required
